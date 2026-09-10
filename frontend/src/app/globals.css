@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/*
+ * Memora Console palette.
+ *
+ * Deliberately modelled on an operations console rather than a marketing site:
+ * a dark utility bar pinned to the top, a quiet grey canvas, and white panels
+ * carrying every piece of content. Colour is reserved for status and actions,
+ * so a red or amber badge is the only thing on the page competing for
+ * attention.
+ */
+@theme {
+  --color-canvas: #f2f3f3;
+  --color-panel: #ffffff;
+  --color-topbar: #0f1b2d;
+  --color-topbar-hover: #192b45;
+
+  --color-ink: #16191f;
+  --color-ink-secondary: #5f6b7a;
+  --color-ink-tertiary: #8b949e;
+
+  --color-line: #d5dbdb;
+  --color-line-soft: #e9ebed;
+
+  --color-accent: #0972d3;
+  --color-accent-hover: #065299;
+  --color-accent-soft: #f0f7ff;
+
+  --color-ok: #037f0c;
+  --color-ok-soft: #eff8f0;
+  --color-warn: #8d6605;
+  --color-warn-soft: #fdf6e6;
+  --color-danger: #d91515;
+  --color-danger-soft: #fdf3f3;
+  --color-muted: #5f6b7a;
+  --color-muted-soft: #f1f3f3;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus ring: visible for keyboard users, absent for mouse clicks. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
