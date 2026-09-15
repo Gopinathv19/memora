@@ -14,7 +14,9 @@ config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+config.set_main_option("sqlalchemy.url",get_settings().database_url)
 
+target_metadata = Base.metadata
 # The URL comes from the environment, never from alembic.ini, so no connection
 # string with a password ever lands in a committed file.
 config.set_main_option("sqlalchemy.url", get_settings().database_url)
