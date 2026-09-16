@@ -75,3 +75,4 @@ def get_auth_context(
 CurrentScope = Annotated[Scope, Depends(get_scope)]
 CurrentAuth = Annotated[AuthContext, Depends(get_auth_context)]
 Storage = Annotated[StorageBackend, Depends(get_storage)]
+

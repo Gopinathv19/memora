@@ -14,6 +14,8 @@ from app.db.models.credential import ApiCredential
 from app.db.models.source import Source
 from app.db.models.subject import Subject
 from app.db.models.tenant import Tenant
+from app.db.models.users import Users
+from app.db.models.auth_user import Authenticated_User
 
 __all__ = [
     "Tenant",
@@ -22,4 +24,6 @@ __all__ = [
     "Actor",
     "Subject",
     "Source",
+    "Users",
+    "Authenticated_User"
 ]
