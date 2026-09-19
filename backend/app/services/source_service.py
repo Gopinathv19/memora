@@ -146,6 +146,10 @@ def _query(
         .join(Application, Application.id == Source.application_id)
         .join(Subject, Subject.id == Source.subject_id)
         .outerjoin(actor_alias, actor_alias.id == Source.created_by_actor_id)
+        .where(
+            scope.tenant_predicate(Source.tenant_id),
+            scope.application_predicate(Source.application_id),
+        )
         .order_by(Source.created_at.desc())
     )
     if tenant_id is not None:
@@ -158,11 +162,6 @@ def _query(
         stmt = stmt.where(Source.status == status)
     if source_id is not None:
         stmt = stmt.where(Source.id == source_id)
-    if not scope.is_admin:
-        stmt = stmt.where(
-            Source.tenant_id == scope.tenant_id,
-            Source.application_id == scope.application_id,
-        )
     return stmt
 
 
@@ -255,19 +254,21 @@ def dashboard_counts(db: Session, scope: Scope) -> dict:
     from app.db.models import ApiCredential
     from app.schemas.enums import ResourceStatus
 
-    def _count(model, *predicates):
+    def _count(model, *predicates, join=None):
         stmt = select(func.count()).select_from(model)
+        if join is not None:
+            stmt = stmt.join(*join)
         for predicate in predicates:
             stmt = stmt.where(predicate)
         return db.execute(stmt).scalar_one()
 
-    tenant_filter = [] if scope.is_admin else [Tenant.id == scope.tenant_id]
-    app_filter = [] if scope.is_admin else [Application.id == scope.application_id]
-    scoped = (
-        []
-        if scope.is_admin
-        else [Source.tenant_id == scope.tenant_id, Source.application_id == scope.application_id]
-    )
+    # Every count is constrained by both predicates. For a console user the
+    # application half is a no-op `true`, which is what gives them tenant-wide
+    # reach; for a credential both halves bite. Nothing is ever unfiltered.
+    scoped = [
+        scope.tenant_predicate(Source.tenant_id),
+        scope.application_predicate(Source.application_id),
+    ]
 
     status_rows = db.execute(
         select(Source.status, func.count())
@@ -275,32 +276,32 @@ def dashboard_counts(db: Session, scope: Scope) -> dict:
         .group_by(Source.status)
     ).all()
 
-    credential_predicates = [ApiCredential.status == ResourceStatus.ACTIVE.value]
-    if not scope.is_admin:
-        credential_predicates.append(
-            ApiCredential.application_id == scope.application_id
-        )
-
     return {
-        "tenants": _count(Tenant, *tenant_filter),
-        "applications": _count(Application, *app_filter),
+        "tenants": _count(Tenant, scope.tenant_predicate(Tenant.id)),
+        "applications": _count(
+            Application,
+            scope.tenant_predicate(Application.tenant_id),
+            scope.application_predicate(Application.id),
+        ),
         "actors": _count(
             Actor,
-            *(
-                []
-                if scope.is_admin
-                else [Actor.application_id == scope.application_id]
-            ),
+            scope.tenant_predicate(Actor.tenant_id),
+            scope.application_predicate(Actor.application_id),
         ),
         "subjects": _count(
             Subject,
-            *(
-                []
-                if scope.is_admin
-                else [Subject.application_id == scope.application_id]
-            ),
+            scope.tenant_predicate(Subject.tenant_id),
+            scope.application_predicate(Subject.application_id),
         ),
         "sources": _count(Source, *scoped),
-        "active_credentials": _count(ApiCredential, *credential_predicates),
+        # ApiCredential has no tenant_id of its own, so the tenant half of the
+        # scope can only be applied through its application.
+        "active_credentials": _count(
+            ApiCredential,
+            ApiCredential.status == ResourceStatus.ACTIVE.value,
+            scope.tenant_predicate(Application.tenant_id),
+            scope.application_predicate(ApiCredential.application_id),
+            join=(Application, Application.id == ApiCredential.application_id),
+        ),
         "sources_by_status": {status: count for status, count in status_rows},
     }

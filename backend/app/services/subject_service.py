@@ -83,6 +83,10 @@ def _query(
         .join(Application, Application.id == Subject.application_id)
         .join(Tenant, Tenant.id == Subject.tenant_id)
         .outerjoin(actor_alias, actor_alias.id == Subject.actor_id)
+        .where(
+            scope.tenant_predicate(Subject.tenant_id),
+            scope.application_predicate(Subject.application_id),
+        )
         .order_by(Subject.created_at.desc())
     )
     if tenant_id is not None:
@@ -93,11 +97,6 @@ def _query(
         stmt = stmt.where(Subject.actor_id == actor_id)
     if subject_id is not None:
         stmt = stmt.where(Subject.id == subject_id)
-    if not scope.is_admin:
-        stmt = stmt.where(
-            Subject.tenant_id == scope.tenant_id,
-            Subject.application_id == scope.application_id,
-        )
     return stmt
 
 

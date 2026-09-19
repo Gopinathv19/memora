@@ -29,7 +29,7 @@ class AuthContext:
 
     @property
     def scope(self) -> Scope:
-        return Scope.from_credential(self.tenant.id, self.application.id)
+        return Scope.for_credentials(self.tenant.id, self.application.id)
 
 
 def create_credential(
@@ -87,15 +87,14 @@ def list_credentials(
     stmt = (
         select(ApiCredential)
         .join(Application, Application.id == ApiCredential.application_id)
+        .where(
+            scope.tenant_predicate(Application.tenant_id),
+            scope.application_predicate(ApiCredential.application_id),
+        )
         .order_by(ApiCredential.created_at.desc())
     )
     if application_id is not None:
         stmt = stmt.where(ApiCredential.application_id == application_id)
-    if not scope.is_admin:
-        stmt = stmt.where(
-            Application.tenant_id == scope.tenant_id,
-            Application.id == scope.application_id,
-        )
     return list(db.execute(stmt).scalars().all())
 
 

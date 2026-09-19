@@ -88,17 +88,16 @@ def _counts_query(
             source_count,
         )
         .join(Tenant, Tenant.id == Application.tenant_id)
+        .where(
+            scope.tenant_predicate(Application.tenant_id),
+            scope.application_predicate(Application.id),
+        )
         .order_by(Application.created_at.desc())
     )
     if tenant_id is not None:
         stmt = stmt.where(Application.tenant_id == tenant_id)
     if application_id is not None:
         stmt = stmt.where(Application.id == application_id)
-    if not scope.is_admin:
-        stmt = stmt.where(
-            Application.tenant_id == scope.tenant_id,
-            Application.id == scope.application_id,
-        )
     return stmt
 
 

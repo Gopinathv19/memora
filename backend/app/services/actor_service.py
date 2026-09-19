@@ -60,6 +60,10 @@ def _query(
     stmt = (
         select(Actor, Application.name, subject_count)
         .join(Application, Application.id == Actor.application_id)
+        .where(
+            scope.tenant_predicate(Actor.tenant_id),
+            scope.application_predicate(Actor.application_id),
+        )
         .order_by(Actor.created_at.desc())
     )
     if tenant_id is not None:
@@ -68,11 +72,6 @@ def _query(
         stmt = stmt.where(Actor.application_id == application_id)
     if actor_id is not None:
         stmt = stmt.where(Actor.id == actor_id)
-    if not scope.is_admin:
-        stmt = stmt.where(
-            Actor.tenant_id == scope.tenant_id,
-            Actor.application_id == scope.application_id,
-        )
     return stmt
 
 

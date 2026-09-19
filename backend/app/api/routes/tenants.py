@@ -10,19 +10,15 @@ from app.schemas.tenant import (
     TenantWithCounts,
 )
 from app.services import tenant_service
-
+from app.core.errors import PermissionError_
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
 @router.post("", response_model=TenantRead, status_code=status.HTTP_201_CREATED)
 def create_tenant(payload: TenantCreate, db: DbSession, scope: CurrentScope):
-    # Creating a tenant is a management operation: an application credential is
-    # scoped inside one tenant and cannot mint another.
-    from app.core.errors import PermissionError_
-
-    if not scope.is_admin:
+    if not scope.is_console:
         raise PermissionError_("API credentials cannot create tenants")
-    return tenant_service.create_tenant(db, payload)
+    return tenant_service.create_tenant(db, payload,user_owner_id=scope.user_id)
 
 
 @router.get("", response_model=list[TenantWithCounts])

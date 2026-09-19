@@ -9,8 +9,8 @@ from app.schemas.tenant import TenantCreate, TenantUpdate, TenantWithCounts
 from app.services.scope import Scope
 
 
-def create_tenant(db: Session, payload: TenantCreate) -> Tenant:
-    tenant = Tenant(name=payload.name, status=payload.status.value)
+def create_tenant(db: Session, payload: TenantCreate,user_owner_id:uuid.UUID) -> Tenant:
+    tenant = Tenant(name=payload.name, status=payload.status.value,user_owner_id=user_owner_id)
     db.add(tenant)
     db.commit()
     db.refresh(tenant)
@@ -54,8 +54,7 @@ def list_tenants(db: Session, scope: Scope) -> list[TenantWithCounts]:
     stmt = select(Tenant, app_count, subject_count, source_count).order_by(
         Tenant.created_at.desc()
     )
-    if not scope.is_admin:
-        stmt = stmt.where(Tenant.id == scope.tenant_id)
+    stmt = stmt.where(scope.tenant_predicate(Tenant.id))
 
     return [
         TenantWithCounts(

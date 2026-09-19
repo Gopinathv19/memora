@@ -1,60 +1,81 @@
-"""The ownership scope a request is allowed to act within.
-
-Every service read/write takes a `Scope`. This is the single mechanism that
-makes "a source must never be accessible merely because its id is known" true:
-services load a row by id and then assert the row's owners match the scope,
-returning 404 rather than 403 when they do not, so an id in another tenant is
-indistinguishable from an id that does not exist.
-
-Two kinds of scope exist:
-
-* `Scope.admin()` -- a console/management request. Unrestricted.
-* `Scope.from_credential(...)` -- an API-credential request. Pinned to the
-  tenant and application the credential belongs to. These values come from the
-  credential row, never from the client, which is why a caller cannot widen its
-  own scope by passing different ids.
-"""
+ 
 
 import uuid
 from dataclasses import dataclass
 
 from app.core.errors import NotFoundError
 
-
+from typing import Literal
+from collections.abc import Iterable
+from sqlalchemy import true , false
 @dataclass(frozen=True)
 class Scope:
+
+    kind:Literal["user","credential"]
+    
+    #user_based_sessions
+    
+    user_id:uuid.UUID | None = None
+    tenant_ids:frozenset[uuid.UUID] = frozenset()
+
+    #api_credential
     tenant_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
-    is_admin: bool = False
 
     @classmethod
-    def admin(cls) -> "Scope":
-        return cls(is_admin=True)
-
+    def for_users(cls,
+                  user_id:uuid.UUID,
+                  tenants_ids:Iterable[uuid.UUID],
+                  )->"Scope":
+        return cls(kind="user",user_id=user_id,tenant_ids=frozenset(tenants_ids))
     @classmethod
-    def from_credential(
-        cls, tenant_id: uuid.UUID, application_id: uuid.UUID
-    ) -> "Scope":
-        return cls(tenant_id=tenant_id, application_id=application_id)
+    def  for_credentials(cls,tenant_id:uuid.UUID,
+                         application_id:uuid.UUID)-> "Scope":
 
-    def allows_tenant(self, tenant_id: uuid.UUID) -> bool:
-        return self.is_admin or self.tenant_id == tenant_id
+        return cls(kind="credential",tenant_id=tenant_id,application_id=application_id)
 
-    def allows_application(self, application_id: uuid.UUID) -> bool:
-        return self.is_admin or self.application_id == application_id
+    @property
+    def is_console(self)->bool:
+        return self.kind=="user"
 
-    def assert_owns(
-        self,
-        resource: str,
-        tenant_id: uuid.UUID,
-        application_id: uuid.UUID | None = None,
-    ) -> None:
-        """Raise NotFoundError unless this scope covers the given owners.
+    def allow_tenant(self,tenant_id:uuid.UUID)->bool:
+        if self.is_console:
+            return tenant_id in self.tenant_ids
+        return tenant_id == self.tenant_id
 
-        404 rather than 403 is intentional: a 403 would confirm that the id
-        exists in some other tenant, which is itself a leak.
-        """
-        if not self.allows_tenant(tenant_id):
+    def allow_application(self,application_id:uuid.UUID)->bool:
+        if self.is_console:
+            return True
+        return self.application_id == application_id
+
+    def assert_owns(self,
+                    resource:str,
+                    tenant_id:uuid.UUID,
+                    application_id:uuid.UUID | None = None)-> None:
+
+        if not self.allow_tennant(tenant_id=tenant_id):
             raise NotFoundError(f"{resource} not found")
-        if application_id is not None and not self.allows_application(application_id):
+        if application_id is not None and not self.allow_application(application_id=application_id):
             raise NotFoundError(f"{resource} not found")
+
+
+    def tenant_predicate(self,column):
+        if self.is_console:
+            if not self.tenant_ids:
+                return false()
+            return column.in_(list(self.tenant_ids))
+
+        return column == self.tenant_id
+
+    def application_predicate(self,column):
+        if self.is_console:
+            return true()
+
+        return column == self.application_id
+
+
+    
+
+    
+    
+
