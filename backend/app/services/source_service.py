@@ -305,3 +305,101 @@ def dashboard_counts(db: Session, scope: Scope) -> dict:
         ),
         "sources_by_status": {status: count for status, count in status_rows},
     }
+
+
+def dashboard_metrics(db: Session, scope: Scope, days: int = 30) -> dict:
+    """Time-bucketed activity for the console dashboard.
+
+    The console needs three things a plain count cannot answer: how fast each
+    resource is growing, whether that is faster or slower than the period
+    before, and how much storage the sources are consuming. All of it is
+    aggregated in PostgreSQL -- the client renders the payload as it arrives
+    and never downloads a list to count it.
+
+    `days` is the window; the same span immediately before it is aggregated
+    too, so every headline number can carry a delta.
+    """
+    from datetime import date, timedelta
+
+    window_start = date.today() - timedelta(days=days - 1)
+    previous_start = window_start - timedelta(days=days)
+
+    def _daily(model, *predicates) -> list[dict]:
+        """One row per day that has rows, as `YYYY-MM-DD` -> count."""
+        day = func.date_trunc("day", model.created_at).label("day")
+        rows = db.execute(
+            select(day, func.count())
+            .where(*predicates, model.created_at >= window_start)
+            .group_by(day)
+            .order_by(day)
+        ).all()
+        counted = {row[0].date().isoformat(): row[1] for row in rows}
+        # Zero-fill: a chart with gaps for quiet days reads as missing data
+        # rather than as nothing having happened.
+        return [
+            {
+                "date": (window_start + timedelta(days=offset)).isoformat(),
+                "value": counted.get(
+                    (window_start + timedelta(days=offset)).isoformat(), 0
+                ),
+            }
+            for offset in range(days)
+        ]
+
+    def _between(model, start, end, *predicates) -> int:
+        stmt = select(func.count()).select_from(model).where(
+            *predicates, model.created_at >= start
+        )
+        if end is not None:
+            stmt = stmt.where(model.created_at < end)
+        return db.execute(stmt).scalar_one()
+
+    source_scope = [
+        scope.tenant_predicate(Source.tenant_id),
+        scope.application_predicate(Source.application_id),
+    ]
+    subject_scope = [
+        scope.tenant_predicate(Subject.tenant_id),
+        scope.application_predicate(Subject.application_id),
+    ]
+    actor_scope = [
+        scope.tenant_predicate(Actor.tenant_id),
+        scope.application_predicate(Actor.application_id),
+    ]
+
+    def _series(model, predicates) -> dict:
+        return {
+            "points": _daily(model, *predicates),
+            "current": _between(model, window_start, None, *predicates),
+            "previous": _between(model, previous_start, window_start, *predicates),
+        }
+
+    type_rows = db.execute(
+        select(Source.type, func.count()).where(*source_scope).group_by(Source.type)
+    ).all()
+
+    storage_bytes = (
+        db.execute(
+            select(func.coalesce(func.sum(Source.size_bytes), 0)).where(*source_scope)
+        ).scalar_one()
+        or 0
+    )
+
+    largest = db.execute(
+        select(func.coalesce(func.max(Source.size_bytes), 0)).where(*source_scope)
+    ).scalar_one()
+
+    latest = db.execute(
+        select(func.max(Source.created_at)).where(*source_scope)
+    ).scalar_one()
+
+    return {
+        "days": days,
+        "sources": _series(Source, source_scope),
+        "subjects": _series(Subject, subject_scope),
+        "actors": _series(Actor, actor_scope),
+        "sources_by_type": {source_type: count for source_type, count in type_rows},
+        "storage_bytes": int(storage_bytes),
+        "largest_source_bytes": int(largest or 0),
+        "last_source_at": latest.isoformat() if latest else None,
+    }

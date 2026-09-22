@@ -1,38 +1,96 @@
 "use client";
 
-import Link from "next/link";
+import { useState } from "react";
 
 import { api } from "@/lib/api";
 import { useResource } from "@/lib/useResource";
-import { formatDate } from "@/lib/format";
-import { DataTable } from "@/components/DataTable";
+import { formatBytes, formatDate, formatRelative } from "@/lib/format";
+import { ActivityCard, MetricTile } from "@/components/charts";
 import {
   Button,
   ErrorState,
   LoadingState,
   PageHeader,
   Panel,
-  StatusBadge,
-  TypeTag,
 } from "@/components/ui";
 
-/** Every number on this page comes from GET /api/v1/stats. Nothing is hard-coded. */
+/*
+ * The dashboard is a metrics page, not a diagram.
+ *
+ * It answers two questions: how much is in the system (the tile strip), and
+ * how fast it is arriving compared with the period before (the activity
+ * cards). The status/type breakdowns and the recent-sources table lived here
+ * too and were removed until there is enough data to make them worth reading;
+ * `BreakdownBars` is still in charts.tsx for when they come back.
+ *
+ * Every number comes from GET /api/v1/stats and GET /api/v1/stats/metrics.
+ * Nothing is derived from a downloaded list, and nothing is hard-coded.
+ */
+
+const WINDOWS = [7, 30, 90] as const;
+
+/** 17px stroked icons for the tile strip, on the same 24-unit grid as the rail. */
+const TILE_ICONS = {
+  tenants: "M4 21V5.5L12 3l8 2.5V21M4 21h16M9 21v-4h6v4",
+  applications: "M4 5.5h6v6H4zM14 5.5h6v6h-6zM4 14.5h6v6H4zM14 14.5h6v6h-6z",
+  actors:
+    "M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM3 20c0-3 2.7-5 6-5s6 2 6 5",
+  subjects:
+    "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h9A1.5 1.5 0 0 1 21 10v8.5A1.5 1.5 0 0 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5Z",
+  sources:
+    "M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3ZM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  credentials:
+    "M14.5 3a6.5 6.5 0 0 1 0 13 6.6 6.6 0 0 1-2.4-.45L10 18H8v2H6v2H3v-3l6.6-6.6A6.5 6.5 0 0 1 14.5 3Z",
+  storage: "M4 7.5h16v4H4zM4 12.5h16v4H4zM7.5 9.5h.01M7.5 14.5h.01",
+  clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 7v5l3.5 2",
+} as const;
+
+function TileIcon({ name }: { name: keyof typeof TILE_ICONS }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-[17px]"
+    >
+      <path d={TILE_ICONS[name]} />
+    </svg>
+  );
+}
+
 export default function DashboardPage() {
+  const [days, setDays] = useState<(typeof WINDOWS)[number]>(30);
+
   const stats = useResource(() => api.stats(), []);
-  const recent = useResource(() => api.sources.list(), []);
+  const metrics = useResource(() => api.metrics(days), [days]);
+
+  const busy = stats.refreshing || metrics.refreshing;
+
+  function reloadAll() {
+    stats.reload();
+    metrics.reload();
+  }
 
   return (
     <>
       <PageHeader
         title="Dashboard"
-        description="Memora tracks knowledge through one ownership chain: a tenant owns applications, an application knows its actors, an actor opens subjects, and subjects hold sources."
+        description="Live counts, and how fast they are moving."
         actions={
-          <Button onClick={() => { stats.reload(); recent.reload(); }} disabled={stats.refreshing}>
-            {stats.refreshing ? "Refreshing…" : "Refresh"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <WindowPicker value={days} onChange={setDays} />
+            <Button onClick={reloadAll} disabled={busy}>
+              {busy ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
         }
       />
 
+      {/* --------------------------------------------------- the current state */}
       {stats.loading ? (
         <Panel>
           <LoadingState label="Loading counts" />
@@ -42,212 +100,140 @@ export default function DashboardPage() {
           <ErrorState message={stats.error} onRetry={stats.reload} />
         </Panel>
       ) : (
-        <>
-          <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <StatTile label="Tenants" value={stats.data!.tenants} href="/tenants" caption="Organizations" />
-            <StatTile label="Applications" value={stats.data!.applications} href="/applications" caption="Consuming applications" />
-            <StatTile label="Actors" value={stats.data!.actors} href="/actors" caption="Users, services and agents" />
-            <StatTile label="Subjects" value={stats.data!.subjects} href="/subjects" caption="Workspaces" />
-            <StatTile label="Sources" value={stats.data!.sources} href="/sources" caption="Registered knowledge" />
-            <StatTile
-              label="Active API credentials"
-              value={stats.data!.active_credentials}
-              href="/credentials"
-              caption="Usable bearer tokens"
-            />
-          </div>
-
-          <div className="mb-5 grid gap-5 lg:grid-cols-2">
-            <Panel
-              title="Sources by status"
-              description="Nothing advances a source past pending yet — extraction is the next phase."
-            >
-              <SourceStatusBreakdown
-                counts={stats.data!.sources_by_status}
-                total={stats.data!.sources}
-              />
-            </Panel>
-            <Panel title="Ownership chain">
-              <ChainDiagram stats={stats.data!} />
-            </Panel>
-          </div>
-        </>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricTile
+            icon={<TileIcon name="tenants" />}
+            label="Tenants"
+            value={stats.data!.tenants}
+            caption="Organizations"
+            href="/tenants"
+          />
+          <MetricTile
+            icon={<TileIcon name="applications" />}
+            label="Applications"
+            value={stats.data!.applications}
+            caption="Consuming applications"
+            href="/applications"
+          />
+          <MetricTile
+            icon={<TileIcon name="actors" />}
+            label="Actors"
+            value={stats.data!.actors}
+            caption="Users, services and agents"
+            href="/actors"
+          />
+          <MetricTile
+            icon={<TileIcon name="subjects" />}
+            label="Subjects"
+            value={stats.data!.subjects}
+            caption="Workspaces"
+            href="/subjects"
+          />
+          <MetricTile
+            icon={<TileIcon name="sources" />}
+            label="Sources"
+            value={stats.data!.sources}
+            caption="Registered knowledge"
+            href="/sources"
+          />
+          <MetricTile
+            icon={<TileIcon name="credentials" />}
+            label="Active credentials"
+            value={stats.data!.active_credentials}
+            caption="Usable bearer tokens"
+            href="/credentials"
+          />
+          <MetricTile
+            icon={<TileIcon name="storage" />}
+            label="Storage used"
+            value={formatBytes(metrics.data?.storage_bytes)}
+            caption={
+              metrics.data
+                ? `Largest ${formatBytes(metrics.data.largest_source_bytes)}`
+                : "—"
+            }
+          />
+          <MetricTile
+            icon={<TileIcon name="clock" />}
+            label="Last source"
+            value={
+              metrics.data?.last_source_at
+                ? formatRelative(metrics.data.last_source_at)
+                : "Never"
+            }
+            caption={
+              metrics.data?.last_source_at
+                ? formatDate(metrics.data.last_source_at)
+                : "Nothing registered yet"
+            }
+          />
+        </div>
       )}
 
-      <Panel
-        title="Recently registered sources"
-        counter={recent.data?.length}
-        actions={<Link href="/sources" className="text-sm font-bold text-accent hover:underline">View all</Link>}
-      >
-        <DataTable
-          rows={recent.data?.slice(0, 8)}
-          loading={recent.loading}
-          error={recent.error}
-          onRetry={recent.reload}
-          rowKey={(source) => source.id}
-          empty={{
-            title: "No sources registered yet",
-            description:
-              "Create a tenant, an application and a subject, then register a source against it.",
-          }}
-          columns={[
-            {
-              header: "Source",
-              cell: (source) => (
-                <Link href={`/sources/${source.id}`} className="font-bold text-accent hover:underline">
-                  {source.filename ?? source.storage_uri ?? source.id.split("-")[0]}
-                </Link>
-              ),
-            },
-            { header: "Type", width: "90px", cell: (source) => <TypeTag value={source.type} /> },
-            {
-              header: "Subject",
-              cell: (source) => (
-                <Link href={`/subjects/${source.subject_id}`} className="text-accent hover:underline">
-                  {source.subject_external_id}
-                </Link>
-              ),
-            },
-            { header: "Application", cell: (source) => source.application_name ?? "–" },
-            { header: "Status", width: "110px", cell: (source) => <StatusBadge status={source.status} /> },
-            {
-              header: "Registered",
-              align: "right",
-              cell: (source) => <span className="text-ink-secondary">{formatDate(source.created_at)}</span>,
-            },
-          ]}
-        />
-      </Panel>
+      {/* -------------------------------------------------------- the movement */}
+      {metrics.loading ? (
+        <Panel>
+          <LoadingState label="Loading activity" />
+        </Panel>
+      ) : metrics.error ? (
+        <Panel>
+          <ErrorState message={metrics.error} onRetry={metrics.reload} />
+        </Panel>
+      ) : (
+        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+          <ActivityCard
+            label="Sources registered"
+            series={metrics.data!.sources}
+            days={metrics.data!.days}
+            unit="sources"
+          />
+          <ActivityCard
+            label="Subjects opened"
+            series={metrics.data!.subjects}
+            days={metrics.data!.days}
+            unit="subjects"
+          />
+          <ActivityCard
+            label="Actors created"
+            series={metrics.data!.actors}
+            days={metrics.data!.days}
+            unit="actors"
+          />
+        </div>
+      )}
     </>
   );
 }
 
-function StatTile({
-  label,
+/** The reporting window. Every chart on the page reads from it. */
+function WindowPicker({
   value,
-  href,
-  caption,
+  onChange,
 }: {
-  label: string;
   value: number;
-  href: string;
-  caption: string;
+  onChange: (days: (typeof WINDOWS)[number]) => void;
 }) {
   return (
-    <Link
-      href={href}
-      className="group rounded-lg border border-line bg-panel p-4 shadow-sm transition-colors hover:border-accent"
+    <div
+      role="group"
+      aria-label="Reporting window"
+      className="flex gap-1 rounded-md border border-line bg-surface p-1"
     >
-      <div className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">
-        {label}
-      </div>
-      <div className="mt-1 text-3xl font-bold text-ink tabular-nums group-hover:text-accent">
-        {value}
-      </div>
-      <div className="mt-0.5 text-xs text-ink-secondary">{caption}</div>
-    </Link>
-  );
-}
-
-const STATUS_ORDER = ["pending", "processing", "completed", "failed"] as const;
-
-const STATUS_BAR: Record<string, string> = {
-  pending: "bg-warn",
-  processing: "bg-accent",
-  completed: "bg-ok",
-  failed: "bg-danger",
-};
-
-function SourceStatusBreakdown({
-  counts,
-  total,
-}: {
-  counts: Record<string, number>;
-  total: number;
-}) {
-  if (total === 0) {
-    return (
-      <p className="px-4 py-8 text-center text-sm text-ink-secondary">
-        No sources registered yet.
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-3 p-4">
-      {STATUS_ORDER.map((status) => {
-        const count = counts[status] ?? 0;
-        const percent = total ? Math.round((count / total) * 100) : 0;
-        return (
-          <div key={status}>
-            <div className="mb-1 flex items-baseline justify-between text-sm">
-              <StatusBadge status={status} />
-              <span className="tabular-nums text-ink-secondary">
-                {count} <span className="text-ink-tertiary">({percent}%)</span>
-              </span>
-            </div>
-            <div
-              className="h-1.5 overflow-hidden rounded-full bg-muted-soft"
-              role="img"
-              aria-label={`${count} of ${total} sources are ${status}`}
-            >
-              <div
-                className={`h-full rounded-full ${STATUS_BAR[status]}`}
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/**
- * The chain, rendered with the live count at each level. Reading it top to
- * bottom is the fastest way to understand what Memora stores.
- */
-function ChainDiagram({
-  stats,
-}: {
-  stats: {
-    tenants: number;
-    applications: number;
-    actors: number;
-    subjects: number;
-    sources: number;
-  };
-}) {
-  const levels = [
-    { label: "Tenant", sub: "Organization that owns the data", count: stats.tenants, href: "/tenants" },
-    { label: "Application", sub: "Consuming application", count: stats.applications, href: "/applications" },
-    { label: "Actor", sub: "Who or what operates on it", count: stats.actors, href: "/actors" },
-    { label: "Subject", sub: "The workspace / data boundary", count: stats.subjects, href: "/subjects" },
-    { label: "Source", sub: "Registered knowledge", count: stats.sources, href: "/sources" },
-  ];
-  return (
-    <ol className="p-4">
-      {levels.map((level, index) => (
-        <li key={level.label}>
-          <Link
-            href={level.href}
-            className="flex items-center gap-3 rounded border border-line px-3 py-2 hover:border-accent hover:bg-accent-soft"
-            style={{ marginLeft: `${index * 14}px` }}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold text-ink">{level.label}</span>
-              <span className="block text-xs text-ink-secondary">{level.sub}</span>
-            </span>
-            <span className="tabular-nums text-sm font-bold text-ink">{level.count}</span>
-          </Link>
-          {index < levels.length - 1 && (
-            <span
-              aria-hidden
-              className="block h-3 border-l border-line"
-              style={{ marginLeft: `${index * 14 + 16}px` }}
-            />
-          )}
-        </li>
+      {WINDOWS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          aria-pressed={value === option}
+          className={`rounded-[4px] px-2.5 py-1 text-xs font-medium transition-colors ${
+            value === option
+              ? "bg-panel text-ink shadow-sm"
+              : "text-ink-secondary hover:text-ink"
+          }`}
+        >
+          {option}d
+        </button>
       ))}
-    </ol>
+    </div>
   );
 }

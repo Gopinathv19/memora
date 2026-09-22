@@ -2,8 +2,13 @@
 
 import type { ReactNode } from "react";
 
+/*
+ * Supabase's inputs sit on a faintly grey fill with a hairline border, and
+ * signal focus with a green ring rather than a colour change on the border
+ * alone -- that ring is the only strong colour a form ever shows.
+ */
 const FIELD_CLASS =
-  "w-full rounded border border-line bg-panel px-2.5 py-1.5 text-sm text-ink placeholder:text-ink-tertiary focus:border-accent focus:outline-none disabled:bg-muted-soft disabled:text-ink-secondary";
+  "w-full rounded-md border border-line bg-surface px-3 py-[7px] text-sm text-ink placeholder:text-ink-tertiary transition-colors focus:border-brand focus:bg-panel focus:outline-none focus:ring-2 focus:ring-brand/25 disabled:bg-surface-strong disabled:text-ink-secondary";
 
 export function Field({
   label,
@@ -18,12 +23,14 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-bold text-ink">
+      <span className="mb-1.5 block text-sm font-medium text-ink">
         {label}
         {required && <span className="ml-0.5 text-danger">*</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-ink-secondary">{hint}</span>}
+      {hint && (
+        <span className="mt-1.5 block text-xs text-ink-secondary">{hint}</span>
+      )}
     </label>
   );
 }
@@ -101,7 +108,7 @@ export function FileInput({
       accept={accept}
       disabled={disabled}
       onChange={(event) => onChange(event.target.files?.[0] ?? null)}
-      className="w-full rounded border border-dashed border-line bg-muted-soft/50 px-2.5 py-2 text-sm text-ink file:mr-3 file:rounded file:border file:border-accent file:bg-panel file:px-2.5 file:py-1 file:text-sm file:font-bold file:text-accent hover:file:bg-accent-soft"
+      className="w-full rounded-md border border-dashed border-line bg-surface px-3 py-2.5 text-sm text-ink file:mr-3 file:rounded-md file:border file:border-line file:bg-panel file:px-2.5 file:py-1 file:text-sm file:font-medium file:text-ink hover:file:bg-surface-strong"
     />
   );
 }
@@ -122,7 +129,7 @@ export function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/45 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 backdrop-blur-[2px] sm:items-center"
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -131,20 +138,20 @@ export function Modal({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className={`w-full rounded-lg border border-line bg-panel shadow-xl ${wide ? "max-w-2xl" : "max-w-lg"}`}
+        className={`w-full overflow-hidden rounded-lg border border-line bg-panel shadow-2xl ${wide ? "max-w-2xl" : "max-w-lg"}`}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-line-soft px-4 py-3">
+        <header className="flex items-start justify-between gap-4 border-b border-line bg-surface px-4 py-3">
           <div>
-            <h2 className="text-base font-bold text-ink">{title}</h2>
+            <h2 className="text-sm font-medium text-ink">{title}</h2>
             {description && (
-              <p className="mt-0.5 text-sm text-ink-secondary">{description}</p>
+              <p className="mt-0.5 text-xs text-ink-secondary">{description}</p>
             )}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded p-1 text-lg leading-none text-ink-secondary hover:bg-muted-soft hover:text-ink"
+            className="rounded-md p-1 text-lg leading-none text-ink-secondary hover:bg-surface-strong hover:text-ink"
           >
             ×
           </button>

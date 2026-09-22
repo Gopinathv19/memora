@@ -50,13 +50,13 @@ export function DataTable<T>({
       <table className="w-full border-collapse text-sm">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
-          <tr className="border-b border-line bg-muted-soft/60">
+          <tr className="border-b border-line bg-surface">
             {columns.map((column) => (
               <th
                 key={column.header}
                 scope="col"
                 style={column.width ? { width: column.width } : undefined}
-                className={`px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-ink-secondary ${
+                className={`px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink-tertiary ${
                   column.align === "right" ? "text-right" : "text-left"
                 }`}
               >
@@ -69,7 +69,7 @@ export function DataTable<T>({
           {rows.map((row) => (
             <tr
               key={rowKey(row)}
-              className="border-b border-line-soft last:border-0 hover:bg-accent-soft/60"
+              className="border-b border-line-soft last:border-0 transition-colors hover:bg-surface"
             >
               {columns.map((column) => (
                 <td

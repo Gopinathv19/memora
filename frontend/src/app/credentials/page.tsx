@@ -92,13 +92,13 @@ export default function CredentialsPage() {
             action: <ButtonLink href="/applications">Go to applications</ButtonLink>,
           }}
           columns={[
-            { header: "Name", cell: (credential) => <span className="font-bold">{credential.name}</span> },
+            { header: "Name", cell: (credential) => <span className="font-medium">{credential.name}</span> },
             {
               header: "Application",
               cell: (credential) => (
                 <Link
                   href={`/applications/${credential.application_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {applicationName(credential.application_id)}
                 </Link>

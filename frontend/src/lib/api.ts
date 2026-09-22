@@ -13,6 +13,7 @@ import type {
   AuthResponse,
   Credential,
   CredentialCreated,
+  DashboardMetrics,
   DashboardStats,
   Source,
   Subject,
@@ -127,6 +128,10 @@ const json = (body: unknown) => JSON.stringify(body);
 
 export const api = {
   stats: () => request<DashboardStats>("/stats"),
+
+  /** Daily activity, storage and type mix. Bucketing happens in PostgreSQL. */
+  metrics: (days = 30) =>
+    request<DashboardMetrics>("/stats/metrics", { query: { days: String(days) } }),
 
   tenants: {
     list: () => request<Tenant[]>("/tenants"),

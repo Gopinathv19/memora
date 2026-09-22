@@ -5,16 +5,26 @@ import type { ReactNode } from "react";
 
 /* ------------------------------------------------------------------ Buttons */
 
+/*
+ * Supabase's buttons are quiet. The default is a white 6px-radius box with a
+ * hairline border and ordinary text weight; only the one action a page is
+ * really offering gets the green fill. Weights stay at medium throughout --
+ * bold text is what made the old console look like a different product.
+ */
+
 type ButtonVariant = "primary" | "normal" | "danger" | "link";
+
+const BUTTON_BASE =
+  "inline-flex items-center justify-center gap-1.5 rounded-md border px-3 h-[34px] text-sm font-medium transition-colors";
 
 const BUTTON_STYLES: Record<ButtonVariant, string> = {
   primary:
-    "bg-accent text-white border-accent hover:bg-accent-hover hover:border-accent-hover",
+    "bg-brand text-brand-ink border-brand hover:bg-brand-hover hover:border-brand-hover",
   normal:
-    "bg-panel text-accent border-accent hover:bg-accent-soft",
+    "bg-panel text-ink border-line hover:bg-surface-strong",
   danger:
-    "bg-panel text-danger border-danger hover:bg-danger-soft",
-  link: "bg-transparent text-accent border-transparent hover:underline",
+    "bg-panel text-danger border-danger/40 hover:bg-danger-soft hover:border-danger",
+  link: "bg-transparent text-ink-secondary border-transparent hover:text-ink hover:underline",
 };
 
 export function Button({
@@ -37,7 +47,7 @@ export function Button({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-1.5 rounded border px-3 py-1.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${BUTTON_STYLES[variant]} ${className}`}
+      className={`${BUTTON_BASE} disabled:cursor-not-allowed disabled:opacity-45 ${BUTTON_STYLES[variant]} ${className}`}
     >
       {children}
     </button>
@@ -54,10 +64,7 @@ export function ButtonLink({
   variant?: ButtonVariant;
 }) {
   return (
-    <Link
-      href={href}
-      className={`inline-flex items-center justify-center gap-1.5 rounded border px-3 py-1.5 text-sm font-bold transition-colors ${BUTTON_STYLES[variant]}`}
-    >
+    <Link href={href} className={`${BUTTON_BASE} ${BUTTON_STYLES[variant]}`}>
       {children}
     </Link>
   );
@@ -72,23 +79,22 @@ export function ButtonLink({
  * rendering unstyled.
  */
 const STATUS_TONE: Record<string, string> = {
-  active: "text-ok bg-ok-soft border-ok/25",
-  completed: "text-ok bg-ok-soft border-ok/25",
-  pending: "text-warn bg-warn-soft border-warn/25",
-  processing: "text-accent bg-accent-soft border-accent/25",
-  suspended: "text-warn bg-warn-soft border-warn/25",
-  failed: "text-danger bg-danger-soft border-danger/25",
-  revoked: "text-danger bg-danger-soft border-danger/25",
-  expired: "text-danger bg-danger-soft border-danger/25",
+  active: "text-ok bg-ok-soft border-ok/20",
+  completed: "text-ok bg-ok-soft border-ok/20",
+  pending: "text-warn bg-warn-soft border-warn/20",
+  processing: "text-accent bg-accent-soft border-accent/20",
+  suspended: "text-warn bg-warn-soft border-warn/20",
+  failed: "text-danger bg-danger-soft border-danger/20",
+  revoked: "text-danger bg-danger-soft border-danger/20",
+  expired: "text-danger bg-danger-soft border-danger/20",
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const tone =
-    STATUS_TONE[status.toLowerCase()] ??
-    "text-muted bg-muted-soft border-line";
+    STATUS_TONE[status.toLowerCase()] ?? "text-muted bg-muted-soft border-line";
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-bold capitalize ${tone}`}
+      className={`inline-flex items-center rounded-full border px-2 py-[1px] text-xs font-medium capitalize ${tone}`}
     >
       {status}
     </span>
@@ -97,7 +103,7 @@ export function StatusBadge({ status }: { status: string }) {
 
 export function TypeTag({ value }: { value: string }) {
   return (
-    <span className="inline-flex items-center rounded border border-line bg-muted-soft px-1.5 py-0.5 font-mono text-xs text-ink-secondary">
+    <span className="inline-flex items-center rounded border border-line bg-surface px-1.5 py-[1px] font-mono text-xs text-ink-secondary">
       {value}
     </span>
   );
@@ -105,6 +111,10 @@ export function TypeTag({ value }: { value: string }) {
 
 /* ------------------------------------------------------------------- Panels */
 
+/**
+ * A bordered card. No shadow: on this near-white canvas the hairline is the
+ * separation, and a shadow would make every section float.
+ */
 export function Panel({
   title,
   description,
@@ -119,12 +129,12 @@ export function Panel({
   counter?: number;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-panel shadow-sm">
+    <section className="overflow-hidden rounded-lg border border-line bg-panel">
       {(title || actions) && (
-        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line-soft px-4 py-3">
+        <header className="flex flex-wrap items-start justify-between gap-3 border-b border-line bg-surface px-4 py-2.5">
           <div>
             {title && (
-              <h2 className="text-base font-bold text-ink">
+              <h2 className="text-sm font-medium text-ink">
                 {title}
                 {counter !== undefined && (
                   <span className="ml-1.5 font-normal text-ink-tertiary">
@@ -134,7 +144,7 @@ export function Panel({
               </h2>
             )}
             {description && (
-              <p className="mt-0.5 text-sm text-ink-secondary">{description}</p>
+              <p className="mt-0.5 text-xs text-ink-secondary">{description}</p>
             )}
           </div>
           {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
@@ -157,14 +167,14 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="min-w-0">
         {eyebrow && (
-          <div className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">
+          <div className="text-xs font-medium uppercase tracking-wider text-ink-tertiary">
             {eyebrow}
           </div>
         )}
-        <h1 className="truncate text-2xl font-bold text-ink">{title}</h1>
+        <h1 className="truncate text-xl font-medium text-ink">{title}</h1>
         {description && (
           <p className="mt-1 max-w-2xl text-sm text-ink-secondary">
             {description}
@@ -193,7 +203,7 @@ export function KeyValueGrid({
     >
       {items.map((item) => (
         <div key={item.label} className="min-w-0">
-          <dt className="text-xs font-bold uppercase tracking-wide text-ink-tertiary">
+          <dt className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
             {item.label}
           </dt>
           <dd className="mt-1 break-words text-sm text-ink">{item.value}</dd>
@@ -217,7 +227,7 @@ export function LoadingState({ label = "Loading" }: { label?: string }) {
     <div className="flex items-center justify-center gap-2.5 px-4 py-14 text-sm text-ink-secondary">
       <span
         aria-hidden
-        className="size-4 animate-spin rounded-full border-2 border-line border-t-accent"
+        className="size-4 animate-spin rounded-full border-2 border-line border-t-brand"
       />
       {label}…
     </div>
@@ -234,14 +244,14 @@ export function ErrorState({
   return (
     <div
       role="alert"
-      className="m-4 rounded border border-danger/30 bg-danger-soft p-4"
+      className="m-4 rounded-md border border-danger/30 bg-danger-soft p-4"
     >
       <div className="flex items-start gap-2.5">
-        <span aria-hidden className="mt-px font-bold text-danger">
+        <span aria-hidden className="mt-px text-danger">
           ⚠
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-ink">Request failed</p>
+          <p className="text-sm font-medium text-ink">Request failed</p>
           <p className="mt-0.5 text-sm break-words text-ink-secondary">
             {message}
           </p>
@@ -267,7 +277,7 @@ export function EmptyState({
 }) {
   return (
     <div className="px-4 py-14 text-center">
-      <p className="text-sm font-bold text-ink">{title}</p>
+      <p className="text-sm font-medium text-ink">{title}</p>
       {description && (
         <p className="mx-auto mt-1 max-w-md text-sm text-ink-secondary">
           {description}

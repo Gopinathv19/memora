@@ -80,23 +80,23 @@ export default function LoginPage() {
   }, [initGoogle]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted-soft px-4">
+    <div className="flex min-h-screen items-center justify-center bg-surface px-4">
       {GOOGLE_CLIENT_ID && (
         <Script src="https://accounts.google.com/gsi/client" onReady={initGoogle} />
       )}
 
-      <div className="w-full max-w-sm rounded border border-line bg-panel p-6">
-        <div className="mb-5 flex items-center gap-2 font-bold text-ink">
+      <div className="w-full max-w-sm rounded-lg border border-line bg-panel p-6 shadow-sm">
+        <div className="mb-5 flex items-center gap-2 font-medium text-ink">
           <span
             aria-hidden
-            className="grid size-6 place-items-center rounded bg-accent text-xs font-bold text-white"
+            className="grid size-6 place-items-center rounded-md bg-brand text-[11px] font-bold text-brand-ink"
           >
             M
           </span>
           Memora Console
         </div>
 
-        <h1 className="mb-4 text-lg font-bold text-ink">
+        <h1 className="mb-4 text-lg font-medium text-ink">
           {mode === "login" ? "Sign in" : "Create an account"}
         </h1>
 
@@ -159,7 +159,7 @@ export default function LoginPage() {
           {mode === "login" ? "No account yet?" : "Already have an account?"}{" "}
           <button
             type="button"
-            className="font-bold text-accent hover:underline"
+            className="font-medium text-ink hover:underline"
             onClick={() => {
               setMode(mode === "login" ? "signup" : "login");
               setError(null);

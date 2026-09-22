@@ -84,7 +84,7 @@ export default function ApplicationsPage() {
               cell: (application) => (
                 <Link
                   href={`/applications/${application.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {application.name}
                 </Link>
@@ -96,7 +96,7 @@ export default function ApplicationsPage() {
               cell: (application) => (
                 <Link
                   href={`/tenants/${application.tenant_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {application.tenant_name}
                 </Link>

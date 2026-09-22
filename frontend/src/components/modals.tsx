@@ -380,14 +380,14 @@ function TokenReveal({ token, name }: { token: string; name: string }) {
   return (
     <div className="space-y-3">
       <div className="rounded border border-warn/30 bg-warn-soft p-3 text-sm text-ink">
-        <strong className="font-bold">Store this token securely.</strong> It will
+        <strong className="font-medium">Store this token securely.</strong> It will
         not be shown again.
       </div>
       <div>
-        <div className="mb-1 text-xs font-bold uppercase tracking-wide text-ink-tertiary">
+        <div className="mb-1 text-xs font-medium uppercase tracking-wide text-ink-tertiary">
           {name}
         </div>
-        <div className="flex flex-wrap items-center gap-2 rounded border border-line bg-muted-soft p-3">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface p-3">
           <code className="min-w-0 flex-1 font-mono text-[13px] break-all text-ink">
             {token}
           </code>
@@ -483,7 +483,7 @@ export function CreateSourceModal({
       onClose={onClose}
       wide
     >
-      <div className="mb-4 flex gap-1 rounded border border-line bg-muted-soft p-1">
+      <div className="mb-4 flex gap-1 rounded-md border border-line bg-surface p-1">
         {(
           [
             ["upload", "Upload a file"],
@@ -495,9 +495,9 @@ export function CreateSourceModal({
             type="button"
             onClick={() => setMode(value)}
             aria-pressed={mode === value}
-            className={`flex-1 rounded px-3 py-1.5 text-sm font-bold transition-colors ${
+            className={`flex-1 rounded-[4px] px-3 py-1.5 text-sm font-medium transition-colors ${
               mode === value
-                ? "bg-panel text-accent shadow-sm"
+                ? "bg-panel text-ink shadow-sm"
                 : "text-ink-secondary hover:text-ink"
             }`}
           >
@@ -518,7 +518,7 @@ export function CreateSourceModal({
             </Field>
             {file && (
               <p className="text-sm text-ink-secondary">
-                Selected <span className="font-bold text-ink">{file.name}</span>{" "}
+                Selected <span className="font-medium text-ink">{file.name}</span>{" "}
                 — {file.type || "unknown type"}, {file.size.toLocaleString()} bytes
               </p>
             )}

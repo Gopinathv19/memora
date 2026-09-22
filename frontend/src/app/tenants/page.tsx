@@ -55,7 +55,7 @@ export default function TenantsPage() {
               cell: (tenant) => (
                 <Link
                   href={`/tenants/${tenant.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {tenant.name}
                 </Link>

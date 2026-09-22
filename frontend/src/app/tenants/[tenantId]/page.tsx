@@ -119,7 +119,7 @@ export default function TenantDetailPage() {
               cell: (application) => (
                 <Link
                   href={`/applications/${application.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {application.name}
                 </Link>

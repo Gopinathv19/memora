@@ -113,7 +113,7 @@ export default function SourcesPage() {
               cell: (source) => (
                 <Link
                   href={`/sources/${source.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {source.filename ?? source.storage_uri ?? source.id.split("-")[0]}
                 </Link>
@@ -130,7 +130,7 @@ export default function SourcesPage() {
               cell: (source) => (
                 <Link
                   href={`/subjects/${source.subject_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {source.subject_external_id}
                 </Link>
@@ -141,7 +141,7 @@ export default function SourcesPage() {
               cell: (source) => (
                 <Link
                   href={`/applications/${source.application_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {source.application_name}
                 </Link>

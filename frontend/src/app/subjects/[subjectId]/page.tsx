@@ -87,7 +87,7 @@ export default function SubjectDetailPage() {
                 value: (
                   <Link
                     href={`/applications/${data.application_id}`}
-                    className="text-accent hover:underline"
+                    className="text-ink-secondary hover:text-ink hover:underline"
                   >
                     {data.application_name}
                   </Link>
@@ -96,7 +96,7 @@ export default function SubjectDetailPage() {
               {
                 label: "Tenant",
                 value: (
-                  <Link href={`/tenants/${data.tenant_id}`} className="text-accent hover:underline">
+                  <Link href={`/tenants/${data.tenant_id}`} className="text-ink-secondary hover:text-ink hover:underline">
                     {data.tenant_name}
                   </Link>
                 ),
@@ -152,7 +152,7 @@ export default function SubjectDetailPage() {
               cell: (source) => (
                 <Link
                   href={`/sources/${source.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {source.filename ?? source.storage_uri ?? source.id.split("-")[0]}
                 </Link>

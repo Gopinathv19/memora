@@ -80,7 +80,7 @@ export default function ActorsPage() {
           columns={[
             {
               header: "External ID",
-              cell: (actor) => <span className="font-bold">{actor.external_id}</span>,
+              cell: (actor) => <span className="font-medium">{actor.external_id}</span>,
             },
             { header: "Name", cell: (actor) => actor.name ?? <span className="text-ink-tertiary">–</span> },
             { header: "Type", width: "100px", cell: (actor) => <TypeTag value={actor.type} /> },
@@ -89,7 +89,7 @@ export default function ActorsPage() {
               cell: (actor) => (
                 <Link
                   href={`/applications/${actor.application_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {actor.application_name}
                 </Link>
@@ -104,7 +104,7 @@ export default function ActorsPage() {
               cell: (actor) => (
                 <Link
                   href={`/subjects?actor=${actor.id}`}
-                  className="tabular-nums text-accent hover:underline"
+                  className="tabular-nums text-ink-secondary hover:text-ink hover:underline"
                 >
                   {actor.subject_count}
                 </Link>

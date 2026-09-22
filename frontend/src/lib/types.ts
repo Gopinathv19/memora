@@ -106,6 +106,35 @@ export interface DashboardStats {
   sources_by_status: Record<string, number>;
 }
 
+/** One day of a metric series, as returned by GET /api/v1/stats/metrics. */
+export interface TimeseriesPoint {
+  /** ISO `YYYY-MM-DD`, in server time. */
+  date: string;
+  value: number;
+}
+
+/**
+ * A zero-filled daily series plus the window totals that frame it. `previous`
+ * covers the identical span immediately before the window, which is what makes
+ * a delta possible without a second request.
+ */
+export interface MetricSeries {
+  points: TimeseriesPoint[];
+  current: number;
+  previous: number;
+}
+
+export interface DashboardMetrics {
+  days: number;
+  sources: MetricSeries;
+  subjects: MetricSeries;
+  actors: MetricSeries;
+  sources_by_type: Record<string, number>;
+  storage_bytes: number;
+  largest_source_bytes: number;
+  last_source_at: string | null;
+}
+
 export interface User {
   id: string;
   email: string;

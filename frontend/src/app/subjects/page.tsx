@@ -82,7 +82,7 @@ export default function SubjectsPage() {
               cell: (subject) => (
                 <Link
                   href={`/subjects/${subject.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {subject.external_id}
                 </Link>
@@ -93,7 +93,7 @@ export default function SubjectsPage() {
               cell: (subject) => (
                 <Link
                   href={`/applications/${subject.application_id}`}
-                  className="text-accent hover:underline"
+                  className="text-ink-secondary hover:text-ink hover:underline"
                 >
                   {subject.application_name}
                 </Link>
@@ -102,7 +102,7 @@ export default function SubjectsPage() {
             {
               header: "Tenant",
               cell: (subject) => (
-                <Link href={`/tenants/${subject.tenant_id}`} className="text-accent hover:underline">
+                <Link href={`/tenants/${subject.tenant_id}`} className="text-ink-secondary hover:text-ink hover:underline">
                   {subject.tenant_name}
                 </Link>
               ),

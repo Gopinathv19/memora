@@ -103,7 +103,7 @@ export default function ApplicationDetailPage() {
               {
                 label: "Tenant",
                 value: (
-                  <Link href={`/tenants/${app.tenant_id}`} className="text-accent hover:underline">
+                  <Link href={`/tenants/${app.tenant_id}`} className="text-ink-secondary hover:text-ink hover:underline">
                     {app.tenant_name}
                   </Link>
                 ),
@@ -144,7 +144,7 @@ export default function ApplicationDetailPage() {
               ),
             }}
             columns={[
-              { header: "Name", cell: (credential) => <span className="font-bold">{credential.name}</span> },
+              { header: "Name", cell: (credential) => <span className="font-medium">{credential.name}</span> },
               { header: "Token", cell: (credential) => <Mono>{credential.token_preview}</Mono> },
               {
                 header: "Status",
@@ -221,7 +221,7 @@ export default function ApplicationDetailPage() {
               {
                 header: "External ID",
                 cell: (actor) => (
-                  <Link href={`/actors?application_id=${applicationId}`} className="font-bold text-accent hover:underline">
+                  <Link href={`/actors?application_id=${applicationId}`} className="font-medium text-ink hover:underline">
                     {actor.external_id}
                   </Link>
                 ),
@@ -272,7 +272,7 @@ export default function ApplicationDetailPage() {
               cell: (subject) => (
                 <Link
                   href={`/subjects/${subject.id}`}
-                  className="font-bold text-accent hover:underline"
+                  className="font-medium text-ink hover:underline"
                 >
                   {subject.external_id}
                 </Link>

@@ -77,7 +77,7 @@ export default function SourceDetailPage() {
             {hasStoredContent && (
               <a
                 href={api.sources.downloadUrl(data.id)}
-                className="inline-flex items-center rounded border border-accent bg-panel px-3 py-1.5 text-sm font-bold text-accent hover:bg-accent-soft"
+                className="inline-flex items-center rounded-md border border-line bg-panel px-3 h-[34px] text-sm font-medium text-ink transition-colors hover:bg-surface-strong"
               >
                 Download
               </a>
@@ -121,7 +121,7 @@ export default function SourceDetailPage() {
               {
                 label: "Tenant",
                 value: (
-                  <Link href={`/tenants/${data.tenant_id}`} className="text-accent hover:underline">
+                  <Link href={`/tenants/${data.tenant_id}`} className="text-ink-secondary hover:text-ink hover:underline">
                     {data.tenant_name}
                   </Link>
                 ),
@@ -131,7 +131,7 @@ export default function SourceDetailPage() {
                 value: (
                   <Link
                     href={`/applications/${data.application_id}`}
-                    className="text-accent hover:underline"
+                    className="text-ink-secondary hover:text-ink hover:underline"
                   >
                     {data.application_name}
                   </Link>
@@ -142,7 +142,7 @@ export default function SourceDetailPage() {
                 value: (
                   <Link
                     href={`/subjects/${data.subject_id}`}
-                    className="text-accent hover:underline"
+                    className="text-ink-secondary hover:text-ink hover:underline"
                   >
                     {data.subject_external_id}
                   </Link>
