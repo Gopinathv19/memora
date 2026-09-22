@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { api } from "@/lib/api";
+import type { User } from "@/lib/types";
 
 /**
  * The console chrome: a dark utility bar and a persistent resource sidebar.
@@ -10,6 +13,10 @@ import { useState } from "react";
  * The sidebar is ordered to match the ownership chain
  * (Tenants -> Applications -> Actors -> Subjects -> Sources) rather than
  * alphabetically, so the navigation itself teaches the data model.
+ *
+ * It is also the session gate. Every page renders inside it, so asking
+ * /auth/me once here is enough to keep the whole console behind a login --
+ * there are no per-page checks to forget.
  */
 
 interface NavItem {
@@ -49,6 +56,56 @@ function isActive(pathname: string, href: string): boolean {
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [checking, setChecking] = useState(true);
+
+  const isLoginPage = pathname === "/login";
+
+  useEffect(() => {
+    if (isLoginPage) {
+      setChecking(false);
+      return;
+    }
+    let cancelled = false;
+    api.auth
+      .me()
+      .then((me) => {
+        if (!cancelled) setUser(me);
+      })
+      .catch(() => {
+        // request() has already sent the browser to /login on a 401.
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoginPage]);
+
+  async function signOut() {
+    try {
+      await api.auth.logout();
+    } finally {
+      window.location.href = "/login";
+    }
+  }
+
+  // The login page brings its own layout: no sidebar, no user menu.
+  if (isLoginPage) return <>{children}</>;
+
+  if (checking) {
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-ink-secondary">
+        Loading...
+      </div>
+    );
+  }
+
+  // Not signed in, and the redirect is already in flight. Render nothing rather
+  // than a flash of empty console.
+  if (!user) return null;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -83,6 +140,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
           >
             API reference
           </a>
+          <span className="mx-1 hidden h-5 w-px bg-white/20 sm:block" />
+          <span
+            className="hidden max-w-[16rem] truncate text-white/85 sm:inline"
+            title={user.email}
+          >
+            {user.name || user.email}
+          </span>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded px-2.5 py-1 text-white/85 hover:bg-topbar-hover hover:text-white"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 

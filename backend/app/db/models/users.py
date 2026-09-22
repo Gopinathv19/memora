@@ -11,6 +11,8 @@ class Users(UUIDPrimaryKey,StatusColumn,TimestampCreated,Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, server_default="")
 
- 
+    avatar_url: Mapped[str] = mapped_column(String(1024), nullable=False, server_default="")
+
+    
 
 

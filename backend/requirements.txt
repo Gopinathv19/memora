@@ -9,3 +9,4 @@ python-multipart==0.0.20
 pyjwt
 bcrypt
 httpx
+email-validator

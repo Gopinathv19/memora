@@ -53,7 +53,7 @@ class Scope:
                     tenant_id:uuid.UUID,
                     application_id:uuid.UUID | None = None)-> None:
 
-        if not self.allow_tennant(tenant_id=tenant_id):
+        if not self.allow_tenant(tenant_id=tenant_id):
             raise NotFoundError(f"{resource} not found")
         if application_id is not None and not self.allow_application(application_id=application_id):
             raise NotFoundError(f"{resource} not found")

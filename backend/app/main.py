@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import (
+    auth,
     actors,
     applications,
     credentials,
@@ -53,6 +54,7 @@ def handle_memora_error(_: Request, exc: MemoraError) -> JSONResponse:
 # that silently creates its own schema on boot will drift from the migration
 # history, and the difference only surfaces on a fresh database.
 for router in (
+    auth.router,
     dashboard.router,
     tenants.router,
     applications.tenant_router,

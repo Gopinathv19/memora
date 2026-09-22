@@ -105,3 +105,17 @@ export interface DashboardStats {
   active_credentials: number;
   sources_by_status: Record<string, number>;
 }
+
+export interface User {
+  id: string;
+  email: string;
+  email_verified: boolean;
+  name: string;
+  avatar_url: string;
+}
+
+export interface AuthResponse {
+  user: User;
+}
+
+ 

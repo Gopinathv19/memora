@@ -10,19 +10,21 @@
 import type {
   Actor,
   Application,
+  AuthResponse,
   Credential,
   CredentialCreated,
   DashboardStats,
   Source,
   Subject,
   Tenant,
+  User,
 } from "./types";
 
 const BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
-const ADMIN_KEY = process.env.NEXT_PUBLIC_ADMIN_API_KEY ?? "";
+  const PUBLIC_PATHS = ["/auth/login","/auth/signup","/auth/google"]
 
 export class ApiError extends Error {
   constructor(
@@ -51,7 +53,7 @@ async function request<T>(
 ): Promise<T> {
   const { query, ...rest } = init;
   const headers = new Headers(rest.headers);
-  if (ADMIN_KEY) headers.set("X-Admin-Key", ADMIN_KEY);
+ 
   // Only set JSON content-type when there is a JSON body: setting it on a
   // FormData request would override the multipart boundary the browser adds.
   if (rest.body && typeof rest.body === "string") {
@@ -60,12 +62,19 @@ async function request<T>(
 
   let response: Response;
   try {
-    response = await fetch(buildUrl(path, query), { ...rest, headers });
+    response = await fetch(buildUrl(path, query), { ...rest, headers , credentials: "include"});
   } catch {
     throw new ApiError(
       `Cannot reach the Memora API at ${BASE_URL}. Is the backend running?`,
       0,
     );
+  }
+  if (response.status == 401 && 
+    typeof window !== "undefined" &&
+    !PUBLIC_PATHS.includes(path) &&
+    window.location.pathname !="/login"
+  ) {
+    window.location.href="/login";
   }
 
   if (response.status === 204) return undefined as T;
@@ -264,4 +273,19 @@ export const api = {
       request<void>(`/sources/${id}`, { method: "DELETE" }),
     downloadUrl: (id: string) => buildUrl(`/sources/${id}/content`),
   },
+
+    auth: {
+    me: () => request<User>("/auth/me"),
+    signup: (body: { email: string; password: string; name?: string }) =>
+      request<AuthResponse>("/auth/signup", { method: "POST", body: json(body) }),
+    login: (body: { email: string; password: string }) =>
+      request<AuthResponse>("/auth/login", { method: "POST", body: json(body) }),
+    google: (idToken: string) =>
+      request<AuthResponse>("/auth/google", {
+        method: "POST",
+        body: json({ id_token: idToken }),
+      }),
+    logout: () => request<void>("/auth/logout", { method: "POST" }),
+  },
+
 };
