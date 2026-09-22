@@ -148,7 +148,7 @@ vite.config.ts.timestamp-*
 # they are committed even though the rules above ignore every other .env.*.
 !.env.example
 !backend/.env.example
-!frontend/.env.example
+!console/.env.example
 
 # Python backend
 __pycache__/

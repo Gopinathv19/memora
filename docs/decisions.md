@@ -138,7 +138,7 @@ one broke the console twice during verification, in two unrelated ways:
    This one is genuinely hard to diagnose from the symptom.
 
 Both spellings are therefore listed in `backend/.env.example` (`CORS_ORIGINS`)
-and in `frontend/next.config.ts` (`allowedDevOrigins`). If the console is ever
+and in `console/next.config.ts` (`allowedDevOrigins`). If the console is ever
 opened from another host, both need that origin added.
 
 **Next 16, not 15.** The upgrade was requested, and it also removes a real

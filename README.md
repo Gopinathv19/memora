@@ -49,7 +49,7 @@ backend/                 FastAPI + SQLAlchemy + Alembic
   migrations/            Alembic revisions
   tests/                 24 tests over a real PostgreSQL
 
-frontend/                Next.js 16 App Router + TypeScript + Tailwind 4
+console/                 Next.js 16 App Router + TypeScript + Tailwind 4
   src/lib/               typed API client, fetch hooks, formatters
   src/components/        console shell, table, forms, create modals
   src/app/               one route per resource, list + detail
@@ -106,7 +106,7 @@ issued credential.
 ### 3. Console
 
 ```bash
-cd frontend
+cd console
 cp .env.example .env.local    # NEXT_PUBLIC_API_BASE_URL defaults to :8000
 npm install
 npm run dev
@@ -237,3 +237,22 @@ None of those tables exist yet, and none are needed to register, store and
 track a source. The extension point is the `Source` row and its `status`
 lifecycle (`pending → processing → completed | failed`), which the API already
 exposes and nothing yet advances.
+
+## Repository layout
+
+| Directory   | Domain                  | What it is                                        |
+| ----------- | ----------------------- | ------------------------------------------------- |
+| `backend/`  | `api.memora.x.in`       | FastAPI service, PostgreSQL, Alembic migrations.  |
+| `console/`  | `console.memora.x.in`   | Operator console. Behind a session login.         |
+| `web/`      | `memora.x.in`           | Public landing page and API reference. No login.  |
+| `docs/`     | —                       | Internal decision records, not a published site.  |
+
+`web/` is deliberately public: someone integrating against Memora can read the
+reference without an account, and every "use Memora" call to action on it is a
+link into the console rather than an operation it performs itself.
+
+```bash
+cd backend  && uvicorn app.main:app --reload   # :8000
+cd console  && npm run dev                     # :3000
+cd web      && npm run dev                     # :3001
+```
