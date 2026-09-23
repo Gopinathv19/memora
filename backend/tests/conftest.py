@@ -31,6 +31,27 @@ def client(_environment) -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _console_session(client, _environment):
+    """One console user, signed in once, for the whole session.
+
+    Console authentication landed after this suite was written, and every
+    management endpoint now requires a session. TestClient persists cookies,
+    so a single signup (or login, on a database that already holds the user)
+    authenticates every request the tests make without headers. The users
+    tables are deliberately not truncated between tests, so the session
+    survives; requests that carry a `memora_` bearer token still resolve as
+    credentials, because the bearer wins over the cookie.
+    """
+    credentials = {"email": "console@example.com", "password": "test-password-123"}
+    response = client.post(
+        "/api/v1/auth/signup", json={**credentials, "name": "Console Test"}
+    )
+    if response.status_code == 409:  # A previous run already created the user.
+        response = client.post("/api/v1/auth/login", json=credentials)
+    assert response.status_code in (200, 201), response.text
+
+
 @pytest.fixture(autouse=True)
 def clean_tables(_environment):
     """Truncate every table between tests so each one starts from empty."""

@@ -4,7 +4,13 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import CurrentScope, DbSession, Storage
-from app.schemas.source import SourceCreate, SourceDetail, SourceRead, SourceUpdate
+from app.schemas.source import (
+    SourceCreate,
+    SourceDetail,
+    SourceMove,
+    SourceRead,
+    SourceUpdate,
+)
 from app.services import source_service
 from app.storage.local import MAX_UPLOAD_BYTES
 
@@ -128,6 +134,19 @@ def update_source(
     source_id: uuid.UUID, payload: SourceUpdate, db: DbSession, scope: CurrentScope
 ):
     return source_service.update_source(db, source_id, payload, scope)
+
+
+@router.post("/{source_id}/move", response_model=SourceRead)
+def move_source(
+    source_id: uuid.UUID,
+    payload: SourceMove,
+    db: DbSession,
+    scope: CurrentScope,
+):
+    """Move a file to another subject (folder) in the same application."""
+    return source_service.move_source(
+        db, source_id, payload.target_subject_id, scope
+    )
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

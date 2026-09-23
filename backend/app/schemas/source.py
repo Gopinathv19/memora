@@ -31,6 +31,12 @@ class SourceUpdate(BaseModel):
     storage_uri: str | None = None
 
 
+class SourceMove(BaseModel):
+    """Move a source to another subject (folder) in the same application."""
+
+    target_subject_id: uuid.UUID
+
+
 class SourceRead(ORMModel):
     id: uuid.UUID
     tenant_id: uuid.UUID

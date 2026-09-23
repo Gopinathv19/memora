@@ -235,6 +235,31 @@ def update_source(
     return source
 
 
+def move_source(
+    db: Session,
+    source_id: uuid.UUID,
+    target_subject_id: uuid.UUID,
+    scope: Scope,
+) -> Source:
+    """Move a file to another subject (folder) in the same application.
+
+    The `storage_uri` is opaque and never changes: moving a file is one row
+    update, not a byte copy. The target must be scope-checked and must belong
+    to the same application as the source, so the denormalized ownership
+    columns stay truthful.
+    """
+    source = get_source(db, source_id, scope)
+    target = get_subject(db, target_subject_id, scope)
+    if target.application_id != source.application_id:
+        raise ValidationError(
+            "target_subject_id does not reference a subject in this application"
+        )
+    source.subject_id = target.id
+    db.commit()
+    db.refresh(source)
+    return source
+
+
 def delete_source(
     db: Session, source_id: uuid.UUID, scope: Scope, storage: StorageBackend
 ) -> None:
