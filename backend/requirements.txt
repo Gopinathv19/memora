@@ -10,3 +10,13 @@ pyjwt
 bcrypt
 httpx
 email-validator
+
+# Extraction Agent (docs/extraction-agent.md). All permissively licensed --
+# PyMuPDF is deliberately absent: it is AGPL, this repository is Apache 2.0.
+openai
+pdfplumber
+pypdfium2
+python-docx
+openpyxl
+python-pptx
+Pillow

@@ -662,6 +662,8 @@ export function CreateSourceModal({
   const [storageUri, setStorageUri] = useState("");
   const [actorId, setActorId] = useState("");
   const [subject, setSubject] = useState(subjectId ?? "");
+  const [extractAfter, setExtractAfter] = useState(false);
+  const [extractMode, setExtractMode] = useState<"standard" | "deep">("standard");
 
   const subjects = useResource<Subject[]>(
     () => (subjectId ? Promise.resolve([]) : api.subjects.list()),
@@ -690,7 +692,13 @@ export function CreateSourceModal({
     event.preventDefault();
     const created =
       mode === "upload"
-        ? file && (await upload.mutate(subject, file, actorId || null))
+        ? file &&
+          (await upload.mutate(
+            subject,
+            file,
+            actorId || null,
+            extractAfter ? { mode: extractMode } : null,
+          ))
         : await register.mutate(subject, {
             type,
             filename: filename.trim() || null,
@@ -704,7 +712,7 @@ export function CreateSourceModal({
   return (
     <Modal
       title="Register source"
-      description="Memora records and tracks the source. Extraction, chunking and embeddings are a later phase — a new source stays pending."
+      description="Memora records and tracks the source. Tick “Extract after upload” to have the Extraction Agent read it straight away; otherwise it stays pending until you extract it."
       onClose={onClose}
       wide
     >
@@ -766,6 +774,35 @@ export function CreateSourceModal({
                 Selected <span className="font-medium text-ink">{file.name}</span>{" "}
                 — {file.type || "unknown type"}, {file.size.toLocaleString()} bytes
               </p>
+            )}
+            <label className="flex items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={extractAfter}
+                onChange={(event) => setExtractAfter(event.target.checked)}
+                disabled={pending}
+                className="mt-0.5 size-4 accent-[var(--color-brand)]"
+              />
+              <span>
+                <span className="font-medium text-ink">Extract after upload</span>
+                <span className="block text-xs text-ink-secondary">
+                  Runs the Extraction Agent in the background (NVIDIA models). PDF,
+                  images, DOCX, PPTX, XLSX and text files are supported.
+                </span>
+              </span>
+            </label>
+            {extractAfter && (
+              <Field label="Extraction mode">
+                <Select
+                  value={extractMode}
+                  onChange={(value) => setExtractMode(value as "standard" | "deep")}
+                  options={[
+                    { value: "standard", label: "Standard — triage each page (cheapest)" },
+                    { value: "deep", label: "Deep — every page to the layout model" },
+                  ]}
+                  disabled={pending}
+                />
+              </Field>
             )}
           </>
         ) : (

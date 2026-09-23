@@ -15,9 +15,13 @@ import type {
   CredentialCreated,
   DashboardMetrics,
   DashboardStats,
+  Extraction,
+  ExtractionMode,
+  ExtractionSummary,
   Source,
   Subject,
   Tenant,
+  UsageReport,
   User,
 } from "./types";
 
@@ -286,11 +290,24 @@ export const api = {
         method: "POST",
         body: json(body),
       }),
-    /** Register a source by posting the file itself. */
-    upload: (subjectId: string, file: File, createdByActorId?: string | null) => {
+    /**
+     * Register a source by posting the file itself. With `extract`, extraction
+     * version 1 starts in the background as soon as the file is stored.
+     */
+    upload: (
+      subjectId: string,
+      file: File,
+      createdByActorId?: string | null,
+      extract?: { mode: ExtractionMode; instructions?: string | null } | null,
+    ) => {
       const form = new FormData();
       form.append("file", file);
       if (createdByActorId) form.append("created_by_actor_id", createdByActorId);
+      if (extract) {
+        form.append("extract", "true");
+        form.append("extract_mode", extract.mode);
+        if (extract.instructions) form.append("extract_instructions", extract.instructions);
+      }
       return request<Source>(`/subjects/${subjectId}/sources/upload`, {
         method: "POST",
         body: form,
@@ -307,6 +324,32 @@ export const api = {
     delete: (id: string) =>
       request<void>(`/sources/${id}`, { method: "DELETE" }),
     downloadUrl: (id: string) => buildUrl(`/sources/${id}/content`),
+  },
+
+  extractions: {
+    /** Every version of a source's extraction, newest first, without results. */
+    list: (sourceId: string) =>
+      request<ExtractionSummary[]>(`/sources/${sourceId}/extractions`),
+    latest: (sourceId: string) =>
+      request<Extraction>(`/sources/${sourceId}/extractions/latest`),
+    get: (sourceId: string, version: number) =>
+      request<Extraction>(`/sources/${sourceId}/extractions/${version}`),
+    /** Start the next version: a first run, a retry, or a re-extract. */
+    start: (
+      sourceId: string,
+      body: { mode?: ExtractionMode; instructions?: string | null } = {},
+    ) =>
+      request<Extraction>(`/sources/${sourceId}/extractions`, {
+        method: "POST",
+        body: json(body),
+      }),
+  },
+
+  usage: {
+    extractions: (params: { tenantId?: string; applicationId?: string } = {}) =>
+      request<UsageReport>("/usage/extractions", {
+        query: { tenant_id: params.tenantId, application_id: params.applicationId },
+      }),
   },
 
     auth: {

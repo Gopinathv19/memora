@@ -32,6 +32,10 @@ const SECTIONS: { title: string; items: { href: string; label: string }[] }[] = 
     ],
   },
   {
+    title: "Processing",
+    items: [{ href: "/docs/extractions", label: "Extractions" }],
+  },
+  {
     title: "Reference",
     items: [
       { href: "/docs/credentials", label: "API credentials" },

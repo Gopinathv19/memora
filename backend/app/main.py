@@ -1,3 +1,6 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -8,9 +11,11 @@ from app.api.routes import (
     applications,
     credentials,
     dashboard,
+    extractions,
     sources,
     subjects,
     tenants,
+    usage,
 )
 from app.core.config import get_settings
 from app.core.errors import MemoraError
@@ -19,14 +24,36 @@ API_PREFIX = "/api/v1"
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Extraction runs are background tasks in this process; any still marked
+    # `processing` at startup were cut off by a restart and will never finish.
+    from app.db.database import SessionLocal
+    from app.services.extraction_service import fail_interrupted_runs
+
+    try:
+        with SessionLocal() as db:
+            interrupted = fail_interrupted_runs(db)
+        if interrupted:
+            logging.getLogger(__name__).warning(
+                "marked %d interrupted extraction run(s) as failed", interrupted
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted runs")
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Memora",
     version="0.1.0",
     description=(
         "Memora manages the ownership chain "
         "Tenant -> Application -> Actor -> Subject -> Source. "
-        "Sources are registered and tracked; extraction, embeddings and the "
-        "knowledge graph are later phases and are not part of this API."
+        "Sources are registered and tracked, and the Extraction Agent turns a "
+        "stored document into versioned, structured information. Chunks, "
+        "embeddings and the knowledge graph are later phases."
     ),
     docs_url="/docs",
 )
@@ -67,6 +94,8 @@ for router in (
     subjects.router,
     sources.subject_router,
     sources.router,
+    extractions.router,
+    usage.router,
 ):
     app.include_router(router, prefix=API_PREFIX)
 

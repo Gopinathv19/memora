@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatBytes, formatDate } from "@/lib/format";
@@ -38,6 +38,16 @@ export function FileExplorer({
 
   const removeSource = useMutation(api.sources.delete);
   const removeFolder = useMutation(api.subjects.delete);
+  const extract = useMutation(api.extractions.start);
+
+  // Keep status badges live while any file here is being extracted.
+  const anyProcessing = files.data?.some((f) => f.status === "processing") ?? false;
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const timer = setInterval(() => files.reload(), 3000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyProcessing]);
 
   const entries: Entry[] = useMemo(() => {
     const fds = (folders.data ?? []).map((folder) => ({ kind: "folder" as const, folder }));
@@ -73,6 +83,11 @@ export function FileExplorer({
       {error && (
         <div className="px-4 pt-3">
           <ErrorState message={error} onRetry={reloadAll} />
+        </div>
+      )}
+      {extract.error && (
+        <div className="px-4 pt-3">
+          <ErrorState message={extract.error} />
         </div>
       )}
 
@@ -175,9 +190,26 @@ export function FileExplorer({
           {
             header: "",
             align: "right",
-            width: "140px",
+            width: "240px",
             cell: (row: Entry) => (
               <div className="flex justify-end gap-2">
+                {row.kind === "file" && row.file.storage_uri?.startsWith("file://") && (
+                  <Button
+                    disabled={extract.pending || row.file.status === "processing"}
+                    onClick={async () => {
+                      // A first run from here; re-extract with a mode and
+                      // instructions lives on the source's own page.
+                      await extract.mutate(row.file.id, { mode: "standard" });
+                      files.reload();
+                    }}
+                  >
+                    {row.file.status === "processing"
+                      ? "Extracting…"
+                      : row.file.status === "completed" || row.file.status === "failed"
+                        ? "Re-extract"
+                        : "Extract"}
+                  </Button>
+                )}
                 {row.kind === "file" && row.file.storage_uri?.startsWith("file://") && (
                   <a
                     href={api.sources.downloadUrl(row.file.id)}

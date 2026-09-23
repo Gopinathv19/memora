@@ -160,3 +160,108 @@ export interface AuthResponse {
 }
 
  
+/* ------------------------------------------------------ Extraction Agent */
+
+export type ExtractionStatus = "processing" | "completed" | "partial" | "failed";
+export type ExtractionMode = "standard" | "deep";
+
+export interface ExtractedField {
+  key: string;
+  value: string;
+  page: number | null;
+  confidence: number | null;
+}
+
+export interface ExtractedTable {
+  title: string | null;
+  page: number | null;
+  columns: string[];
+  rows: string[][];
+}
+
+/** How one page / slide / sheet / image was read: the routing audit trail. */
+export interface PageProvenance {
+  page: number;
+  kind: string;
+  difficulty: "easy" | "medium" | "hard";
+  route: "text" | "vision" | "layout";
+  model: string | null;
+  status: "ok" | "fallback" | "failed" | "skipped";
+  note: string | null;
+}
+
+export interface ExtractionResult {
+  source_id: string;
+  document_type: string;
+  title: string | null;
+  language: string | null;
+  summary: string;
+  fields: ExtractedField[];
+  tables: ExtractedTable[];
+  pages: PageProvenance[];
+  status: ExtractionStatus;
+  warnings: string[];
+}
+
+export interface ExtractionSummary {
+  id: string;
+  source_id: string;
+  tenant_id: string;
+  application_id: string;
+  version: number;
+  status: ExtractionStatus;
+  mode: ExtractionMode;
+  instructions: string | null;
+  provider: string;
+  models: Record<string, string>;
+  error: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+  triggered_by_kind: "user" | "credential";
+  triggered_by_user_id: string | null;
+  triggered_by_credential_id: string | null;
+  actor_id: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface ExtractionUsageCall {
+  id: string;
+  provider: string;
+  model: string;
+  role: "layout" | "vision" | "extract";
+  page: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+  latency_ms: number;
+  status: string;
+  error: string | null;
+  created_at: string;
+}
+
+export interface Extraction extends ExtractionSummary {
+  result: ExtractionResult | null;
+  usage: ExtractionUsageCall[];
+}
+
+export interface UsageTotals {
+  runs: number;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+}
+
+export interface UsageGroup extends UsageTotals {
+  key: string;
+  label: string | null;
+}
+
+export interface UsageReport {
+  totals: UsageTotals;
+  by_application: UsageGroup[];
+  by_model: UsageGroup[];
+  by_trigger: UsageGroup[];
+}

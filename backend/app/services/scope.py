@@ -21,6 +21,9 @@ class Scope:
     #api_credential
     tenant_id: uuid.UUID | None = None
     application_id: uuid.UUID | None = None
+    # Which credential made the call. Attribution only (the cost ledger);
+    # it plays no part in any access decision.
+    credential_id: uuid.UUID | None = None
 
     @classmethod
     def for_users(cls,
@@ -30,9 +33,11 @@ class Scope:
         return cls(kind="user",user_id=user_id,tenant_ids=frozenset(tenants_ids))
     @classmethod
     def  for_credentials(cls,tenant_id:uuid.UUID,
-                         application_id:uuid.UUID)-> "Scope":
+                         application_id:uuid.UUID,
+                         credential_id:uuid.UUID | None = None)-> "Scope":
 
-        return cls(kind="credential",tenant_id=tenant_id,application_id=application_id)
+        return cls(kind="credential",tenant_id=tenant_id,application_id=application_id,
+                   credential_id=credential_id)
 
     @property
     def is_console(self)->bool:

@@ -41,3 +41,42 @@ class SourceStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ExtractionMode(str, Enum):
+    """How hard an extraction run tries.
+
+    DEEP sends every PDF page to the layout model regardless of triage -- more
+    accurate on awkward documents, and more expensive.
+    """
+
+    STANDARD = "standard"
+    DEEP = "deep"
+
+
+class ExtractionStatus(str, Enum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    # Something was extracted, but at least one page could not be read.
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class PageDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
+
+class ExtractionRoute(str, Enum):
+    """How one unit (page, slide, sheet, image) of a document was read."""
+
+    TEXT = "text"      # local text only, no model call
+    VISION = "vision"  # local text plus pictures described by the vision model
+    LAYOUT = "layout"  # whole page rendered and transcribed by the layout model
+
+
+class ModelRole(str, Enum):
+    LAYOUT = "layout"
+    VISION = "vision"
+    EXTRACT = "extract"

@@ -29,7 +29,9 @@ class AuthContext:
 
     @property
     def scope(self) -> Scope:
-        return Scope.for_credentials(self.tenant.id, self.application.id)
+        return Scope.for_credentials(
+            self.tenant.id, self.application.id, self.credential.id
+        )
 
 
 def create_credential(

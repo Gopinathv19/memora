@@ -1,9 +1,19 @@
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentScope, DbSession, Storage
+from app.api.deps import CurrentScope, DbSession, ExtractionAgentDep, Storage
+from app.schemas.enums import ExtractionMode
+from app.schemas.extraction import MAX_INSTRUCTIONS_CHARS, ExtractionRequest
 from app.schemas.source import (
     SourceCreate,
     SourceDetail,
@@ -11,7 +21,7 @@ from app.schemas.source import (
     SourceRead,
     SourceUpdate,
 )
-from app.services import source_service
+from app.services import extraction_service, source_service
 from app.storage.local import MAX_UPLOAD_BYTES
 
 subject_router = APIRouter(prefix="/subjects/{subject_id}/sources", tags=["sources"])
@@ -34,8 +44,15 @@ def upload_source(
     db: DbSession,
     scope: CurrentScope,
     storage: Storage,
+    agent: ExtractionAgentDep,
+    background: BackgroundTasks,
     file: UploadFile = File(...),
     created_by_actor_id: uuid.UUID | None = Form(default=None),
+    extract: bool = Form(default=False),
+    extract_mode: ExtractionMode = Form(default=ExtractionMode.STANDARD),
+    extract_instructions: str | None = Form(
+        default=None, max_length=MAX_INSTRUCTIONS_CHARS
+    ),
 ):
     """Register a source by posting the file itself.
 
@@ -43,16 +60,17 @@ def upload_source(
     sends its bearer token plus a file, and gets back a tracked source row
     already bound to the right tenant, application and subject.
 
-    Storing the bytes is all that happens. No extraction, no chunking, no
-    embedding -- the row lands in `pending` and stays there until the next
-    phase adds a processor.
+    By default storing the bytes is all that happens and the row lands in
+    `pending`. With `extract=true`, extraction version 1 starts in the
+    background as soon as the row is committed; the response returns at once
+    with the source in `processing`.
     """
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MiB limit",
         )
-    return source_service.create_source_from_upload(
+    source = source_service.create_source_from_upload(
         db,
         subject_id,
         fileobj=file.file,
@@ -62,6 +80,22 @@ def upload_source(
         storage=storage,
         created_by_actor_id=created_by_actor_id,
     )
+    if extract:
+        extraction = extraction_service.start_extraction(
+            db,
+            source.id,
+            ExtractionRequest(
+                mode=extract_mode,
+                instructions=extract_instructions,
+                actor_id=created_by_actor_id,
+            ),
+            scope,
+        )
+        background.add_task(
+            extraction_service.run_extraction, extraction.id, storage, agent
+        )
+        db.refresh(source)
+    return source
 
 
 @subject_router.get("", response_model=list[SourceDetail])

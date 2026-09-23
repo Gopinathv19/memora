@@ -10,6 +10,7 @@ import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { DataTable } from "@/components/DataTable";
 import { SubjectTree } from "@/components/SubjectTree";
+import { UsageCard } from "@/components/UsageCard";
 import {
   CreateActorModal,
   CreateCredentialModal,
@@ -252,6 +253,10 @@ export default function ApplicationDetailPage() {
       >
         <SubjectTree key={subjectRefresh} applicationId={applicationId} />
       </Panel>
+
+      <div className="mt-5">
+        <UsageCard applicationId={applicationId} />
+      </div>
 
       {dialog === "credential" && (
         <CreateCredentialModal

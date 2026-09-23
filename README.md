@@ -225,18 +225,26 @@ the row, and asserts the row's owners match. Three properties fall out of that:
 
 `backend/tests/test_ownership.py` covers each of these.
 
-## Where this stops
+## Extraction Agent
 
-The MVP ends at `Source` on purpose. A later phase adds, beneath it:
+Below `Source` sits the first processing stage: the **Extraction Agent**
+(`Document → Extracted Information`), running inside the backend on NVIDIA
+models via build.nvidia.com (development, free) or Nebius Token Factory (demo).
 
 ```
-Source → Document → Chunks → vector index / knowledge graph
+Source → Document Processor (local, per-page triage) → Extraction Agent → source_extractions (v1, v2, …)
 ```
 
-None of those tables exist yet, and none are needed to register, store and
-track a source. The extension point is the `Source` row and its `status`
-lifecycle (`pending → processing → completed | failed`), which the API already
-exposes and nothing yet advances.
+It runs only when asked — `extract=true` on an upload, `POST
+/api/v1/sources/{id}/extractions`, or the **Extract** button in the console —
+and every run is a new version with its model calls and cost recorded. Design:
+[docs/extraction-agent.md](docs/extraction-agent.md). API reference: the
+`Extractions` page of the docs site.
+
+Setup: put `NVIDIA_API_KEY` (and later `NEBIUS_API_KEY`) in `backend/.env`,
+choose `LLM_PROVIDER`, run `alembic upgrade head`. See `backend/.env.example`.
+
+Chunks, embeddings and the knowledge graph are later phases; none exist yet.
 
 ## Repository layout
 

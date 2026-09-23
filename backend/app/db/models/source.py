@@ -11,6 +11,7 @@ from app.db.models.mixins import TimestampCreated, UUIDPrimaryKey
 if TYPE_CHECKING:
     from app.db.models.actor import Actor
     from app.db.models.application import Application
+    from app.db.models.extraction import SourceExtraction
     from app.db.models.subject import Subject
     from app.db.models.tenant import Tenant
 
@@ -25,8 +26,8 @@ class Source(UUIDPrimaryKey, TimestampCreated, Base):
     only thing that writes them, and it always copies them from the parent
     subject rather than from client input.
 
-    This is where the MVP stops. Extraction, documents, chunks, embeddings and
-    graph relationships all hang below a Source later; none of them exist yet.
+    Extraction runs hang below a Source (`SourceExtraction`, versioned).
+    Chunks, embeddings and graph relationships come later; none exist yet.
     """
 
     __tablename__ = "sources"
@@ -75,3 +76,9 @@ class Source(UUIDPrimaryKey, TimestampCreated, Base):
     application: Mapped["Application"] = relationship()
     subject: Mapped["Subject"] = relationship(back_populates="sources")
     created_by_actor: Mapped["Actor | None"] = relationship()
+    extractions: Mapped[list["SourceExtraction"]] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SourceExtraction.version",
+    )

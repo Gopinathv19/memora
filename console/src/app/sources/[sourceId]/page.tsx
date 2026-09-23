@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
-import { Select } from "@/components/form";
+import { ExtractionPanel } from "@/components/ExtractionPanel";
 import {
   Button,
   ErrorState,
@@ -20,18 +20,10 @@ import {
   TypeTag,
 } from "@/components/ui";
 
-const STATUS_OPTIONS = [
-  { value: "pending", label: "Pending" },
-  { value: "processing", label: "Processing" },
-  { value: "completed", label: "Completed" },
-  { value: "failed", label: "Failed" },
-];
-
 export default function SourceDetailPage() {
   const { sourceId } = useParams<{ sourceId: string }>();
   const router = useRouter();
   const source = useResource(() => api.sources.get(sourceId), [sourceId]);
-  const update = useMutation(api.sources.update);
   const remove = useMutation(api.sources.delete);
 
   if (source.loading) {
@@ -181,48 +173,7 @@ export default function SourceDetailPage() {
         </Panel>
       </div>
 
-      <div className="mb-5">
-        <Panel
-          title="Processing status"
-          description="Nothing advances a source automatically yet. Setting the status by hand is how the lifecycle can be exercised before a processor exists."
-        >
-          <div className="flex flex-wrap items-end gap-3 p-4">
-            <div className="w-52">
-              <Select
-                value={data.status}
-                onChange={async (status) => {
-                  await update.mutate(data.id, { status });
-                  source.reload();
-                }}
-                options={STATUS_OPTIONS}
-                disabled={update.pending}
-              />
-            </div>
-            {update.pending && (
-              <span className="pb-1.5 text-sm text-ink-secondary">Saving…</span>
-            )}
-            {update.error && (
-              <span className="pb-1.5 text-sm text-danger">{update.error}</span>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      <Panel title="What happens next">
-        <div className="p-4 text-sm text-ink-secondary">
-          <p>
-            This is where the MVP deliberately stops. A later phase adds
-            extraction beneath a source:
-          </p>
-          <p className="mt-3 font-mono text-[13px] text-ink">
-            Source → Document → Chunks → vector index / knowledge graph
-          </p>
-          <p className="mt-3">
-            None of those tables exist yet, and none are needed to register,
-            store and track a source.
-          </p>
-        </div>
-      </Panel>
+      <ExtractionPanel source={data} onStatusChange={source.reload} />
     </>
   );
 }

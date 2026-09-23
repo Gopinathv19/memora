@@ -26,6 +26,7 @@ from typing import Annotated
 from fastapi import Depends, Header, Request
 from sqlalchemy.orm import Session
 
+from app.agents.extraction_agent import ExtractionAgent, get_extraction_agent
 from app.core.config import get_settings
 from app.core.errors import AuthenticationError
 from app.core.security import is_api_token, session_user_id
@@ -123,3 +124,4 @@ CurrentScope = Annotated[Scope, Depends(get_scope)]
 CurrentUser = Annotated[Users, Depends(get_current_user)]
 CurrentAuth = Annotated[AuthContext, Depends(get_auth_context)]
 Storage = Annotated[StorageBackend, Depends(get_storage)]
+ExtractionAgentDep = Annotated[ExtractionAgent, Depends(get_extraction_agent)]

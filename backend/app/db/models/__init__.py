@@ -5,12 +5,13 @@ registered on `Base.metadata` before it inspects the database.
 
 The ownership chain modelled here is:
 
-    Tenant -> Application -> Actor -> Subject -> Source
+    Tenant -> Application -> Actor -> Subject -> Source -> SourceExtraction
 """
 
 from app.db.models.actor import Actor
 from app.db.models.application import Application
 from app.db.models.credential import ApiCredential
+from app.db.models.extraction import ExtractionUsage, SourceExtraction
 from app.db.models.source import Source
 from app.db.models.subject import Subject
 from app.db.models.tenant import Tenant
@@ -24,6 +25,8 @@ __all__ = [
     "Actor",
     "Subject",
     "Source",
+    "SourceExtraction",
+    "ExtractionUsage",
     "Users",
     "Authenticated_User"
 ]

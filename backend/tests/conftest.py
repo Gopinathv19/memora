@@ -60,8 +60,28 @@ def clean_tables(_environment):
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE sources, subjects, actors, api_credentials, "
-                "applications, tenants CASCADE"
+                "TRUNCATE extraction_usage, source_extractions, sources, "
+                "subjects, actors, api_credentials, applications, tenants CASCADE"
             )
         )
     yield
+
+
+@pytest.fixture
+def fake_llm(client):
+    """Run the real Document Processor and Extraction Agent over a fake LLM.
+
+    Everything from the upload to the stored result is the production path;
+    only the provider call is replaced, so no test spends credits.
+    """
+    from app.agents.extraction_agent import NemotronExtractionAgent, get_extraction_agent
+    from app.core.config import get_settings
+    from app.main import app
+    from tests.extraction_fakes import FakeLLMClient
+
+    fake = FakeLLMClient()
+    app.dependency_overrides[get_extraction_agent] = lambda: NemotronExtractionAgent(
+        fake, get_settings()
+    )
+    yield fake
+    app.dependency_overrides.pop(get_extraction_agent, None)

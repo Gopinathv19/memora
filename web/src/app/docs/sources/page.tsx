@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import {
   C,
   Callout,
@@ -24,8 +26,12 @@ export default function SourcesPage() {
 
       <Callout title="Registering is not processing">
         Memora records the source and, for an upload, stores the bytes. A new
-        source stays <C>pending</C> — extraction, chunking and embeddings are a
-        later phase, and nothing currently advances it past that.
+        source stays <C>pending</C> until you ask for{" "}
+        <Link href="/docs/extractions" className="text-accent hover:underline">
+          extraction
+        </Link>{" "}
+        — with <C>extract=true</C> on the upload, or later. Chunking and
+        embeddings are a later phase.
       </Callout>
 
       <Section title="Upload a file">
@@ -48,6 +54,20 @@ export default function SourcesPage() {
               type: "uuid | null",
               description:
                 "Which actor registered it. Audit only; must belong to the same application.",
+            },
+            {
+              name: "extract",
+              type: "boolean",
+              description: (
+                <>
+                  <C>true</C> starts extraction in the background right after
+                  the upload; see{" "}
+                  <Link href="/docs/extractions" className="text-accent hover:underline">
+                    Extractions
+                  </Link>
+                  . Also <C>extract_mode</C> and <C>extract_instructions</C>.
+                </>
+              ),
             },
           ]}
         />
@@ -181,17 +201,16 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
         <P>Status is one of:</P>
         <Ul>
           <li>
-            <C>pending</C> — registered, nothing done to it yet. Where everything
-            currently sits.
+            <C>pending</C> — registered, not extracted yet.
           </li>
           <li>
-            <C>processing</C> — being worked on.
+            <C>processing</C> — an extraction run is in progress.
           </li>
           <li>
-            <C>completed</C> — processed.
+            <C>completed</C> — its latest extraction finished.
           </li>
           <li>
-            <C>failed</C> — processing gave up.
+            <C>failed</C> — its latest extraction failed; start a new one to retry.
           </li>
         </Ul>
         <CodeTabs
