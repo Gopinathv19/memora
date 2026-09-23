@@ -397,6 +397,71 @@ export function CreateSubjectModal({
   );
 }
 
+/* ------------------------------------------------------------------- Folder */
+
+/**
+ * A folder is a subject with a parent: same table, same rules, one extra
+ * field. The name must be unique among the chosen parent's children.
+ */
+export function CreateFolderModal({
+  applicationId,
+  parentSubjectId,
+  onClose,
+  onCreated,
+}: {
+  applicationId: string;
+  parentSubjectId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState("");
+  const { mutate, pending, error } = useMutation(api.subjects.create);
+
+  return (
+    <Modal
+      title="Create folder"
+      description="A folder is a subject nested inside this one, to any depth. Sources can be registered and moved into it like any workspace."
+      onClose={onClose}
+    >
+      <form
+        className="space-y-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (
+            await mutate(applicationId, {
+              external_id: name,
+              parent_subject_id: parentSubjectId,
+            })
+          )
+            onCreated();
+        }}
+      >
+        <Field
+          label="Folder name"
+          required
+          hint="Unique among this folder's siblings. It becomes the subject's external ID."
+        >
+          <TextInput
+            value={name}
+            onChange={setName}
+            placeholder="Contracts"
+            disabled={pending}
+            required
+          />
+        </Field>
+        {error && <InlineError message={error} />}
+        <Actions
+          onClose={onClose}
+          pending={pending}
+          disabled={!name.trim()}
+          label="Create folder"
+          pendingLabel="Creating…"
+        />
+      </form>
+    </Modal>
+  );
+}
+
 /* --------------------------------------------------------------- Credential */
 
 /**

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -19,7 +20,10 @@ import {
 } from "@/components/ui";
 
 export default function ActorsPage() {
-  const [applicationFilter, setApplicationFilter] = useState("");
+  const search = useSearchParams();
+  const [applicationFilter, setApplicationFilter] = useState(
+    () => search.get("application_id") ?? "",
+  );
   const applications = useResource(() => api.applications.list(), []);
   const actors = useResource(
     () => api.actors.list({ applicationId: applicationFilter || undefined }),
@@ -67,7 +71,7 @@ export default function ActorsPage() {
           empty={{
             title: "No actors yet",
             description:
-              "A actor belongs to one application, and the create form asks which.",
+              "An actor belongs to one application, and the create form asks which.",
             action: (
               <Button variant="primary" onClick={() => setCreating(true)}>
                 Create actor
@@ -100,7 +104,7 @@ export default function ActorsPage() {
               width: "90px",
               cell: (actor) => (
                 <Link
-                  href={`/subjects?actor=${actor.id}`}
+                  href={`/subjects?actor_id=${actor.id}`}
                   className="tabular-nums text-ink-secondary hover:text-ink hover:underline"
                 >
                   {actor.subject_count}

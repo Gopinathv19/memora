@@ -63,11 +63,19 @@ export interface Actor {
   subject_count: number;
 }
 
+/** One hop of a subject's ancestor chain, nearest parent first. */
+export interface SubjectPathEntry {
+  id: string;
+  external_id: string;
+}
+
 export interface Subject {
   id: string;
   tenant_id: string;
   application_id: string;
   actor_id: string | null;
+  /** The containing subject when this one is a folder; null for a root. */
+  parent_subject_id: string | null;
   external_id: string;
   status: string;
   created_at: string;
@@ -75,6 +83,10 @@ export interface Subject {
   tenant_name: string | null;
   actor_external_id: string | null;
   source_count: number;
+  /** How many subjects (folders) live directly inside this one. */
+  child_count: number;
+  /** Ancestor chain, nearest parent first. Empty for a root. */
+  path: SubjectPathEntry[];
 }
 
 export interface Source {

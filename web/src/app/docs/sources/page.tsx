@@ -223,6 +223,42 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
         </Endpoint>
       </Section>
 
+      <Section title="Move a source">
+        <Endpoint method="POST" path="/api/v1/sources/{source_id}/move">
+          Moves the source to another subject (folder) in the same
+          application. The <C>storage_uri</C> never changes — moving a file is
+          one row update, not a byte copy.
+        </Endpoint>
+        <Fields
+          rows={[
+            {
+              name: "target_subject_id",
+              type: "uuid",
+              required: true,
+              description:
+                "The subject to move the source into. Must belong to the same application as the source.",
+            },
+          ]}
+        />
+        <CodeTabs
+          sample={{
+            python: `source = client.post(
+    f"/sources/{source_id}/move",
+    json={"target_subject_id": folder_id},
+).json()`,
+            js: `const source = await memora(\`/sources/\${sourceId}/move\`, {
+  method: "POST",
+  body: JSON.stringify({ target_subject_id: folderId }),
+});`,
+            curl: `curl -s -X POST \\
+  ${API_BASE_URL}/api/v1/sources/$SOURCE_ID/move \\
+  -H "Authorization: Bearer $MEMORA_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"target_subject_id":"'$FOLDER_ID'"}'`,
+          }}
+        />
+      </Section>
+
       <Section title="Download the bytes">
         <Endpoint method="GET" path="/api/v1/sources/{source_id}/content">
           Streams the stored file back. Only meaningful for sources that were

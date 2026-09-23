@@ -49,6 +49,30 @@ console can label a credential row without handling the secret) and
 `sources.size_bytes` (the upload path knows it; not recording it would mean the
 console cannot show a file size).
 
+**Subjects nest: a folder is a subject.** The file store an actor needs is a
+tree, and it is modelled as an adjacency list on `subjects` itself
+(`parent_subject_id`, NULL for a root) rather than a separate `folders` table.
+One concept instead of two: folders reuse the ownership chain, the scope
+checks, the routes and the console. `external_id` uniqueness moves from
+"unique per application" to "unique among siblings" — two partial unique
+indexes, because PostgreSQL treats NULLs as distinct — which is exactly the
+rule a filesystem has for names in a directory. Every pre-existing subject is
+a root, so the migration is a constraint swap with no data change.
+
+Consequences worth knowing: "subject" now means a workspace *or* a folder
+inside one (dashboard counts include folders); `subjects.actor_id`'s
+`ON DELETE RESTRICT` also restricts actor deletion when they have created
+folders; and moving a file between folders is one row update — the
+`storage_uri` is opaque and never changes, so no bytes are copied.
+
+**Tree queries are recursive CTEs, not Python loops.** The ancestor path (for
+breadcrumbs), the subtree (for delete) and the cycle check (for move) each run
+as one `WITH RECURSIVE` statement regardless of depth. A move is rejected if
+the new parent is the subject itself or any of its descendants; a delete
+collects the subtree's `storage_uri`s first, deletes the root row (the
+database's cascades remove the rest), commits, and only then removes the
+stored bytes — the same "row first, bytes after" order as a source delete.
+
 ## Token storage
 
 Tokens are hashed with **HMAC-SHA256 keyed by `API_SECRET`**, not bcrypt or

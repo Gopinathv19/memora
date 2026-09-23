@@ -207,26 +207,50 @@ export const api = {
 
   subjects: {
     list: (
-      params: { tenantId?: string; applicationId?: string; actorId?: string } = {},
+      params: {
+        tenantId?: string;
+        applicationId?: string;
+        actorId?: string;
+        /** List only the children of this subject (folder). */
+        parentSubjectId?: string;
+        /** List only root workspaces, not folders inside them. */
+        rootsOnly?: boolean;
+      } = {},
     ) =>
       request<Subject[]>("/subjects", {
         query: {
           tenant_id: params.tenantId,
           application_id: params.applicationId,
           actor_id: params.actorId,
+          parent_subject_id: params.parentSubjectId,
+          roots_only: params.rootsOnly ? "true" : undefined,
         },
       }),
     get: (id: string) => request<Subject>(`/subjects/${id}`),
     create: (
       applicationId: string,
-      body: { external_id: string; actor_id?: string | null },
+      body: {
+        external_id: string;
+        parent_subject_id?: string | null;
+        actor_id?: string | null;
+      },
     ) =>
       request<Subject>(`/applications/${applicationId}/subjects`, {
         method: "POST",
         body: json(body),
       }),
-    update: (id: string, body: { status?: string; actor_id?: string }) =>
+    update: (
+      id: string,
+      body: {
+        external_id?: string;
+        parent_subject_id?: string | null;
+        status?: string;
+        actor_id?: string;
+      },
+    ) =>
       request<Subject>(`/subjects/${id}`, { method: "PATCH", body: json(body) }),
+    /** Deletes the subject, its whole folder subtree, and their sources. */
+    delete: (id: string) => request<void>(`/subjects/${id}`, { method: "DELETE" }),
   },
 
   sources: {
@@ -274,6 +298,12 @@ export const api = {
     },
     update: (id: string, body: { status?: string; filename?: string }) =>
       request<Source>(`/sources/${id}`, { method: "PATCH", body: json(body) }),
+    /** Move a file to another subject (folder) in the same application. */
+    move: (id: string, targetSubjectId: string) =>
+      request<Source>(`/sources/${id}/move`, {
+        method: "POST",
+        body: json({ target_subject_id: targetSubjectId }),
+      }),
     delete: (id: string) =>
       request<void>(`/sources/${id}`, { method: "DELETE" }),
     downloadUrl: (id: string) => buildUrl(`/sources/${id}/content`),

@@ -9,6 +9,7 @@ import { formatDate, formatRelative } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { DataTable } from "@/components/DataTable";
+import { SubjectTree } from "@/components/SubjectTree";
 import {
   CreateActorModal,
   CreateCredentialModal,
@@ -42,11 +43,10 @@ export default function ApplicationDetailPage() {
     () => api.actors.list({ applicationId }),
     [applicationId],
   );
-  const subjects = useResource(
-    () => api.subjects.list({ applicationId }),
-    [applicationId],
-  );
+  // Subjects now shown as a hierarchical tree (roots expanded lazily)
   const [dialog, setDialog] = useState<Dialog>();
+  // Bump this to force the tree to remount after a create
+  const [subjectRefresh, setSubjectRefresh] = useState(0);
 
   const revoke = useMutation(api.credentials.revoke);
 
@@ -243,55 +243,14 @@ export default function ApplicationDetailPage() {
 
       <Panel
         title="Subjects"
-        counter={subjects.data?.length}
-        description="Workspaces inside this application. Sources are always scoped to one."
+        description="Workspaces in this application. Expand a workspace to see its folders."
         actions={
           <Button variant="primary" onClick={() => setDialog("subject")}>
             Create subject
           </Button>
         }
       >
-        <DataTable
-          rows={subjects.data}
-          loading={subjects.loading}
-          error={subjects.error}
-          onRetry={subjects.reload}
-          rowKey={(subject) => subject.id}
-          empty={{
-            title: "No subjects",
-            description: "A subject is the workspace that holds sources.",
-            action: (
-              <Button variant="primary" onClick={() => setDialog("subject")}>
-                Create subject
-              </Button>
-            ),
-          }}
-          columns={[
-            {
-              header: "Workspace",
-              cell: (subject) => (
-                <Link
-                  href={`/subjects/${subject.id}`}
-                  className="font-medium text-ink hover:underline"
-                >
-                  {subject.external_id}
-                </Link>
-              ),
-            },
-            {
-              header: "Opened by",
-              cell: (subject) => subject.actor_external_id ?? <span className="text-ink-tertiary">–</span>,
-            },
-            { header: "Status", width: "110px", cell: (subject) => <StatusBadge status={subject.status} /> },
-            {
-              header: "Sources",
-              align: "right",
-              width: "90px",
-              cell: (subject) => <span className="tabular-nums">{subject.source_count}</span>,
-            },
-            { header: "Created", align: "right", cell: (subject) => formatDate(subject.created_at) },
-          ]}
-        />
+        <SubjectTree key={subjectRefresh} applicationId={applicationId} />
       </Panel>
 
       {dialog === "credential" && (
@@ -321,7 +280,7 @@ export default function ApplicationDetailPage() {
           onClose={() => setDialog(undefined)}
           onCreated={() => {
             setDialog(undefined);
-            subjects.reload();
+            setSubjectRefresh((v) => v + 1);
             application.reload();
           }}
         />
