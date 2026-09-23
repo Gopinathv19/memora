@@ -17,7 +17,7 @@ export function UsageCard({ applicationId }: { applicationId?: string }) {
   return (
     <Panel
       title="Extraction usage & cost"
-      description="Every model call the Extraction Agent made, and who triggered it. build.nvidia.com calls are free; Nebius calls are priced from LLM_PRICES."
+      description="Every model call the Extraction Agent made, and who triggered it. Costs come from the operator's price list (backend/pricing.json); build.nvidia.com calls are free."
     >
       {report.loading ? (
         <LoadingState label="Loading usage" />

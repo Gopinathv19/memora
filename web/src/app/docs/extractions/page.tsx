@@ -70,11 +70,14 @@ const EXTRACTION_JSON = `{
   "usage": [
     { "id": "…", "provider": "nebius", "model": "nvidia/nemotron-parse",
       "role": "layout", "page": 2, "prompt_tokens": 1830, "completion_tokens": 412,
-      "cost_usd": 0.0, "latency_ms": 6210, "status": "ok", "error": null,
+      "cost_usd": 0.0, "price": null, "latency_ms": 6210, "status": "ok", "error": null,
       "created_at": "…" },
     { "id": "…", "provider": "nebius", "model": "nvidia/nemotron-3-super-120b-a12b",
       "role": "extract", "page": null, "prompt_tokens": 4290, "completion_tokens": 492,
-      "cost_usd": 0.002649, "latency_ms": 11380, "status": "ok", "error": null,
+      "cost_usd": 0.002649,
+      "price": { "input_per_1m": 0.30, "output_per_1m": 0.90, "per_image": 0,
+                 "per_call": 0, "free": false, "effective_from": "2026-09-01" },
+      "latency_ms": 11380, "status": "ok", "error": null,
       "created_at": "…" }
   ]
 }`;
@@ -389,8 +392,17 @@ do {
           Each call is also on its version, under <C>usage</C>, and the
           version carries the totals <C>prompt_tokens</C>,{" "}
           <C>completion_tokens</C> and <C>cost_usd</C>. Failed calls are
-          recorded too. Calls through build.nvidia.com are recorded at $0;
-          Nebius calls are priced per model by the server.
+          recorded too. Costs are what the model provider charges Memora,
+          worked out from the operator&apos;s price list: per model, by input and
+          output tokens, per image and/or per call. Calls through
+          build.nvidia.com are free.
+        </P>
+        <P>
+          Prices are set by whoever runs Memora, not through this API: no
+          endpoint can read or change them. Each model call records the rate
+          that was applied in <C>price</C>, with the date that rate took effect,
+          so a later price change never alters a past cost. <C>price</C> is{" "}
+          <C>null</C> when a model has no price; that call is recorded at $0.
         </P>
         <CodeTabs
           sample={{

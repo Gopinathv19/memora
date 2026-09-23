@@ -235,6 +235,15 @@ export interface ExtractionUsageCall {
   prompt_tokens: number;
   completion_tokens: number;
   cost_usd: number;
+  /** The operator's rate applied to this call; null when the model is unpriced. */
+  price: {
+    input_per_1m: number;
+    output_per_1m: number;
+    per_image: number;
+    per_call: number;
+    free: boolean;
+    effective_from: string;
+  } | null;
   latency_ms: number;
   status: string;
   error: string | null;

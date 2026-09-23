@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.agents.extraction_agent import ExtractionAgent, ExtractionFailed, UsageRecord
 from app.core.config import get_settings
+from app.core.pricing import price_call
 from app.core.errors import ConflictError, MemoraError, NotFoundError, ValidationError
 from app.db.database import SessionLocal
 from app.db.models import (
@@ -107,21 +108,17 @@ def start_extraction(
     return extraction
 
 
-def _cost(provider: str, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    if provider != "nebius":
-        return 0.0  # build.nvidia.com is free
-    price = get_settings().llm_prices.get(model) or {}
-    return round(
-        prompt_tokens * price.get("input", 0.0) / 1_000_000
-        + completion_tokens * price.get("output", 0.0) / 1_000_000,
-        6,
-    )
-
-
 def _record_usage(db: Session, extraction: SourceExtraction, records: list[UsageRecord]) -> None:
+    # Priced from the operator's price list (app/core/pricing.py) as of the
+    # run's start, and the rate applied is stored with each call.
     for record in records:
-        cost = _cost(
-            extraction.provider, record.model, record.prompt_tokens, record.completion_tokens
+        cost, price = price_call(
+            extraction.provider,
+            record.model,
+            record.role.value,
+            record.prompt_tokens,
+            record.completion_tokens,
+            at=extraction.created_at,
         )
         db.add(
             ExtractionUsage(
@@ -140,6 +137,7 @@ def _record_usage(db: Session, extraction: SourceExtraction, records: list[Usage
                 prompt_tokens=record.prompt_tokens,
                 completion_tokens=record.completion_tokens,
                 cost_usd=cost,
+                price=price,
                 latency_ms=record.latency_ms,
                 status=record.status,
                 error=record.error,

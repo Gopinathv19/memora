@@ -1,0 +1,47 @@
+{
+  "_readme": [
+    "Operator price list for the Extraction Agent: what each model call costs Memora.",
+    "Edited only by whoever runs Memora (reviewed in git); no API or console can change it.",
+    "Add a NEW version with a later effective_from to change prices -- never edit an old one,",
+    "so past costs stay explainable. Units: USD. Any mix of input_per_1m, output_per_1m,",
+    "per_image (layout/vision calls send one image each), per_call; or free: true.",
+    "The newest version in force is used on its own, so it must list every provider/model.",
+    "A model missing from the file is recorded at $0 with price = null, so it stands out.",
+    "nemotron-3-super: $0.30 / $0.90 per 1M tokens as listed for Nebius (Sept 2026).",
+    "nemotron-parse and nemotron-3-nano-omni on Nebius: fill in from tokenfactory.nebius.com/models.",
+    "TEST PRICES: build.nvidia.com is really free. The 2026-09-24 build-nvidia rates are made up",
+    "so cost calculation can be exercised during development. Before the demo, add a new",
+    "version that sets build-nvidia back to { \"*\": { \"free\": true } }."
+  ],
+  "versions": [
+    {
+      "effective_from": "2026-09-24",
+      "providers": {
+        "build-nvidia": {
+          "nvidia/nemotron-3-super-120b-a12b": { "input_per_1m": 0.30, "output_per_1m": 0.90 },
+          "nvidia/nemotron-parse": { "per_image": 0.002, "output_per_1m": 0.40 },
+          "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning": {
+            "input_per_1m": 0.10,
+            "output_per_1m": 0.40,
+            "per_image": 0.001
+          },
+          "*": { "per_call": 0.0005 }
+        },
+        "nebius": {
+          "nvidia/nemotron-3-super-120b-a12b": { "input_per_1m": 0.30, "output_per_1m": 0.90 }
+        }
+      }
+    },
+    {
+      "effective_from": "2026-09-01",
+      "providers": {
+        "build-nvidia": {
+          "*": { "free": true }
+        },
+        "nebius": {
+          "nvidia/nemotron-3-super-120b-a12b": { "input_per_1m": 0.30, "output_per_1m": 0.90 }
+        }
+      }
+    }
+  ]
+}

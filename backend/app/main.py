@@ -27,6 +27,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    # A malformed price list must stop the server, not silently mis-price runs.
+    from app.core.pricing import get_price_list
+
+    get_price_list()
+
     # Extraction runs are background tasks in this process; any still marked
     # `processing` at startup were cut off by a restart and will never finish.
     from app.db.database import SessionLocal

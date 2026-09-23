@@ -224,22 +224,39 @@ def test_credential_runs_are_attributed_and_scoped(client, fake_llm):
     assert client.get("/api/v1/usage/extractions", headers=intruder).json()["totals"]["runs"] == 0
 
 
-def test_nebius_runs_are_priced_from_settings(client, fake_llm, monkeypatch):
+def test_nebius_runs_are_priced_from_the_operator_price_list(
+    client, fake_llm, monkeypatch, tmp_path
+):
+    import json
+
+    from app.core import pricing
     from app.core.config import get_settings
 
     settings = get_settings()
+    price_file = tmp_path / "pricing.json"
+    price_file.write_text(json.dumps({"versions": [{
+        "effective_from": "2026-01-01",
+        "providers": {"nebius": {settings.llm_extract_model: {"input_per_1m": 1.0, "output_per_1m": 2.0}}},
+    }]}))
     monkeypatch.setattr(settings, "llm_provider", "nebius")
-    monkeypatch.setattr(
-        settings,
-        "llm_prices",
-        {settings.llm_extract_model: {"input": 1.0, "output": 2.0}},
-    )
-    _, _, subject_id = _setup(client)
-    source_id = _upload(client, subject_id, data=make_pdf([text_page(LOREM)]), extract=True).json()["id"]
-    run = client.get(f"/api/v1/sources/{source_id}/extractions/latest").json()
+    monkeypatch.setattr(settings, "pricing_file", str(price_file))
+    pricing.get_price_list.cache_clear()
+    try:
+        _, _, subject_id = _setup(client)
+        data = make_pdf([text_page(LOREM), table_page()])
+        source_id = _upload(client, subject_id, data=data, extract=True).json()["id"]
+        run = client.get(f"/api/v1/sources/{source_id}/extractions/latest").json()
+    finally:
+        pricing.get_price_list.cache_clear()
+
     assert run["provider"] == "nebius"
-    # 1000 prompt tokens at $1/M + 200 completion tokens at $2/M.
+    # 1000 prompt tokens at $1/M + 200 completion tokens at $2/M; the layout
+    # model has no price, so it is recorded at $0 with no rate snapshot.
     assert run["cost_usd"] == 0.0014
+    calls = {u["role"]: u for u in run["usage"]}
+    assert calls["extract"]["price"]["input_per_1m"] == 1.0
+    assert calls["extract"]["price"]["effective_from"] == "2026-01-01"
+    assert calls["layout"]["cost_usd"] == 0.0 and calls["layout"]["price"] is None
 
 
 def test_deleting_a_source_removes_its_extractions(client, fake_llm):

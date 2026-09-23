@@ -54,10 +54,9 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 120.0
     llm_max_retries: int = 3
     llm_max_output_tokens: int = 8192
-    # USD per 1M tokens, keyed by model id:
-    #   {"nvidia/nemotron-3-super-120b-a12b": {"input": 0.3, "output": 0.9}}
-    # Only applied on Nebius; build.nvidia.com calls are recorded as $0.
-    llm_prices: dict[str, dict[str, float]] = {}
+    # The operator's versioned price list (see app/core/pricing.py). A file in
+    # the backend, not a setting any console user or credential can reach.
+    pricing_file: str = str(Path(__file__).resolve().parents[2] / "pricing.json")
 
     extraction_max_pages: int = 30
     extraction_max_images: int = 20

@@ -67,6 +67,31 @@ def clean_tables(_environment):
     yield
 
 
+@pytest.fixture(autouse=True)
+def test_price_list(tmp_path, monkeypatch):
+    """Tests price against their own list, not the operator's backend/pricing.json.
+
+    The shipped file changes whenever the operator changes prices (it carries
+    made-up build-nvidia rates during development); assertions about cost must
+    not change with it. Here build.nvidia.com is free and Nebius is unpriced;
+    a test that needs prices writes its own file.
+    """
+    import json
+
+    from app.core import pricing
+    from app.core.config import get_settings
+
+    path = tmp_path / "pricing.json"
+    path.write_text(json.dumps({"versions": [{
+        "effective_from": "2026-01-01",
+        "providers": {"build-nvidia": {"*": {"free": True}}},
+    }]}))
+    monkeypatch.setattr(get_settings(), "pricing_file", str(path))
+    pricing.get_price_list.cache_clear()
+    yield path
+    pricing.get_price_list.cache_clear()
+
+
 @pytest.fixture
 def fake_llm(client):
     """Run the real Document Processor and Extraction Agent over a fake LLM.

@@ -124,6 +124,11 @@ class ExtractionUsageRead(ORMModel):
     prompt_tokens: int
     completion_tokens: int
     cost_usd: float
+    price: dict | None = Field(
+        default=None,
+        description="The operator's rate applied to this call, with its "
+        "effective_from date; null when the model is not priced.",
+    )
     latency_ms: int
     status: str
     error: str | None = None

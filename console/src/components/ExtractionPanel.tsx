@@ -8,6 +8,7 @@ import type {
   Extraction,
   ExtractionMode,
   ExtractionSummary,
+  ExtractionUsageCall,
   PageProvenance,
   Source,
 } from "@/lib/types";
@@ -45,6 +46,19 @@ const TEXTAREA_CLASS =
 export function formatUsd(value: number): string {
   if (!value) return "$0";
   return value < 0.01 ? `$${value.toFixed(6)}` : `$${value.toFixed(4)}`;
+}
+
+/** Hover text: which operator rate produced a call's cost. */
+function priceTitle(price: ExtractionUsageCall["price"]): string {
+  if (price === null) return "This model has no price in the operator's price list";
+  if (price.free) return `Free (price list of ${price.effective_from})`;
+  const parts = [
+    price.input_per_1m && `$${price.input_per_1m}/1M in`,
+    price.output_per_1m && `$${price.output_per_1m}/1M out`,
+    price.per_image && `$${price.per_image}/image`,
+    price.per_call && `$${price.per_call}/call`,
+  ].filter(Boolean);
+  return `${parts.join(" + ")} (price list of ${price.effective_from})`;
 }
 
 function formatTokens(prompt: number, completion: number): string {
@@ -490,9 +504,19 @@ function ExtractionView({ extraction }: { extraction: Extraction }) {
               },
               {
                 header: "Cost",
-                width: "100px",
+                width: "120px",
                 align: "right",
-                cell: (u) => <span className="tabular-nums">{formatUsd(u.cost_usd)}</span>,
+                cell: (u) => (
+                  <span className="tabular-nums" title={priceTitle(u.price)}>
+                    {u.price === null ? (
+                      <span className="text-warn">unpriced</span>
+                    ) : u.price.free ? (
+                      "free"
+                    ) : (
+                      formatUsd(u.cost_usd)
+                    )}
+                  </span>
+                ),
               },
               {
                 header: "Status",

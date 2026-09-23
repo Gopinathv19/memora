@@ -238,10 +238,56 @@ Every model call is recorded and attributed to whoever triggered the run.
     application's own end user)
   - `provider`, `model`, `role` (`layout` | `vision` | `extract`), `page`
   - `prompt_tokens`, `completion_tokens`, `cost_usd`, `latency_ms`, `status`
+  - `price`: the rate that was applied, with its `effective_from` date
+    (`null` means the model was unpriced and cost $0)
 - **Totals** (tokens and `cost_usd`) are also stored on each extraction version.
-- **Prices** come from the `LLM_PRICES` setting (JSON: model → USD per 1M
-  input and output tokens). build.nvidia.com is $0; Nebius prices come from
-  its pricing page.
+- **What is measured:** the **real cost to Memora**: what the provider
+  charges. Charging tenants (markup, plans, per-page prices) can be added
+  later on top of the same ledger.
+
+### The operator's price list
+
+Prices are **service configuration, set by whoever runs Memora**, never by a
+tenant. They live in `backend/pricing.json`, a versioned file reviewed in git.
+`PRICING_FILE` can point elsewhere. No API route or console screen can change
+them; console users and API credentials only see the resulting costs.
+
+```json
+{
+  "versions": [
+    {
+      "effective_from": "2026-09-01",
+      "providers": {
+        "build-nvidia": { "*": { "free": true } },
+        "nebius": {
+          "nvidia/nemotron-3-super-120b-a12b": { "input_per_1m": 0.30, "output_per_1m": 0.90 },
+          "nvidia/nemotron-parse": { "per_image": 0.002 }
+        }
+      }
+    }
+  ]
+}
+```
+
+- **Units, per model, any mix:** `input_per_1m`, `output_per_1m`, `per_image`,
+  `per_call`, or `free: true`. Cost is the sum of whichever are set.
+  `layout` and `vision` calls count as one image each; `extract` counts none.
+  Per-image pricing exists because Nemotron-Parse reports only about 5 input
+  tokens for a whole page, so token prices alone would undercount it.
+- **`"*"`** matches every model of a provider. That is how build.nvidia.com is
+  marked free in one line.
+- **Versions:** a call is priced by the newest version whose `effective_from`
+  is on or before the day the run started. To change a price, **add** a
+  version with a later date rather than editing an old one, so past costs stay
+  explainable. Each usage row keeps a snapshot of the rate it used.
+- **Unpriced models** cost $0 with `price = null`. The console marks them as
+  "unpriced", so a missing price stands out instead of looking free.
+- **Validation:** the file is checked at server startup. Negative prices, a
+  bad date, or two versions with the same date stop the server.
+- The shipped file prices Nemotron 3 Super on Nebius at $0.30 / $0.90 per 1M
+  tokens, as listed in September 2026. Nemotron-Parse and Nemotron 3 Nano Omni
+  on Nebius still need their prices filled in from
+  tokenfactory.nebius.com/models.
 - **Attribution:** `Scope` gains an optional `credential_id`, set by
   `get_scope` for credential callers. This is purely additive and doesn't
   change any access rule.
