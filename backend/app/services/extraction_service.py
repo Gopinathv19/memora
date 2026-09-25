@@ -175,6 +175,7 @@ def run_extraction(
             )
             usage = output.usage
             extraction.result = output.result.model_dump(mode="json")
+            extraction.content = output.content
             extraction.status = output.result.status.value
             source.status = SourceStatus.COMPLETED.value
         except (ExtractionFailed, UnsupportedDocumentError, MemoraError) as exc:

@@ -73,7 +73,32 @@ class Settings(BaseSettings):
     triage_min_ruled_lines: int = 8
     triage_max_medium_images: int = 2
 
-    @field_validator("llm_extract_model", "llm_vision_model", "llm_layout_model")
+    # --- Knowledge graph (docs/graph-rag.md) ---------------------------------
+    # FalkorDB connection, e.g. falkors://user:password@host:port for FalkorDB
+    # Cloud (TLS) or falkor://localhost:6379 locally. Empty = graph disabled:
+    # every graph endpoint answers 503 and nothing else is affected.
+    falkordb_url: str = ""
+    # Every graph Memora creates is named "{prefix}_tenant_{tenant uuid}". Tests
+    # use their own random prefix, so they never touch real graphs.
+    falkordb_graph_prefix: str = "memora"
+    falkordb_timeout_ms: int = 30_000
+    # The model that reads each chunk for entities and relationships.
+    llm_graph_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    # The operator's entity / relationship types (see app/graph/ontology.py).
+    graph_ontology_file: str = str(Path(__file__).resolve().parents[2] / "ontology.json")
+    graph_chunk_chars: int = 3000
+    graph_chunk_overlap: int = 300
+    graph_concurrency: int = 4
+    # Chunks read per build; the rest are recorded as failed, so a retry
+    # picks them up rather than them being silently dropped.
+    graph_max_chunks: int = 200
+    # 0-100 similarity an unseen name needs to join an existing entity of the
+    # same type. Deliberately strict: a false merge is worse than a duplicate.
+    graph_fuzzy_threshold: float = 92.0
+
+    @field_validator(
+        "llm_extract_model", "llm_vision_model", "llm_layout_model", "llm_graph_model"
+    )
     @classmethod
     def _nvidia_models_only(cls, value: str) -> str:
         # The hackathon rule is NVIDIA open models only, on either platform.

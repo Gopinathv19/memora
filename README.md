@@ -6,8 +6,8 @@ retrievable context.
 This repository currently contains the **console and registration foundation**:
 a Next.js operations console and a FastAPI backend over Neon PostgreSQL that
 model who owns what, and let a file be registered and stored against the right
-owner. Extraction, chunking, embeddings and the knowledge graph are the next
-phase and are deliberately absent.
+owner, plus the first processing stages: the Extraction Agent and the
+knowledge graph (see below). Embeddings and vector search are the next phase.
 
 ## The ownership chain
 
@@ -244,7 +244,28 @@ and every run is a new version with its model calls and cost recorded. Design:
 Setup: put `NVIDIA_API_KEY` (and later `NEBIUS_API_KEY`) in `backend/.env`,
 choose `LLM_PROVIDER`, run `alembic upgrade head`. See `backend/.env.example`.
 
-Chunks, embeddings and the knowledge graph are later phases; none exist yet.
+## Knowledge graph
+
+Below extraction sits the **knowledge graph** on FalkorDB: each extraction's
+merged text is chunked, an NVIDIA model reads each chunk for entities and
+relationships from a fixed ontology (`backend/ontology.json`), duplicates are
+resolved, and the facts land in one graph per tenant with provenance back to
+source and chunk. A subject's graph (and its folders') can be viewed or
+queried with deterministic 1–3 hop retrieval.
+
+```
+source_extractions.content → chunks → entities + relationships → FalkorDB → graph evidence
+```
+
+It runs only when asked — `build_graph=true` on an extract or upload, or `POST
+/api/v1/sources/{id}/graph`. Design: [docs/graph-rag.md](docs/graph-rag.md).
+API reference: the `Knowledge graph` page of the docs site.
+
+Setup: set `FALKORDB_URL` (FalkorDB Cloud: `falkors://user:pass@host:port`) in
+`backend/.env`, `pip install -r requirements.txt`, `alembic upgrade head`.
+Without `FALKORDB_URL` the graph endpoints answer 503 and nothing else changes.
+
+Embeddings and vector search are a later phase; none exist yet.
 
 ## Repository layout
 

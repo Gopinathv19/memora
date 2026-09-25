@@ -167,7 +167,7 @@ export default function ExtractionsPage() {
           <Link href="/docs/sources" className="text-accent hover:underline">
             upload
           </Link>
-          , with three optional form fields. The response is the source, already
+          , with four optional form fields. The response is the source, already
           in <C>processing</C>; version 1 runs in the background.
         </Endpoint>
         <Fields
@@ -196,6 +196,19 @@ export default function ExtractionsPage() {
               name: "extract_instructions",
               type: "string | null",
               description: "Optional guidance for the agent, up to 2,000 characters.",
+            },
+            {
+              name: "build_graph",
+              type: "boolean",
+              description: (
+                <>
+                  <C>true</C> to build the source&apos;s{" "}
+                  <Link href="/docs/graph" className="text-accent hover:underline">
+                    knowledge graph
+                  </Link>{" "}
+                  once the extraction succeeds.
+                </>
+              ),
             },
           ]}
         />
@@ -261,6 +274,16 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
               type: "uuid | null",
               description:
                 "Your end user this run is for. Recorded for cost attribution only; must belong to the same application.",
+            },
+            {
+              name: "build_graph",
+              type: "boolean",
+              description: (
+                <>
+                  <C>true</C> to build the knowledge graph from this version once
+                  it succeeds.
+                </>
+              ),
             },
           ]}
         />
@@ -376,9 +399,13 @@ do {
           ]}
         />
         <Callout>
-          Extraction returns facts only. It does not create chunks, embeddings or
-          graph entities — the original file stays the source of truth and can
-          always be re-read.
+          Extraction returns facts only. It does not create embeddings or graph
+          entities — those are separate stages (see{" "}
+          <Link href="/docs/graph" className="text-accent hover:underline">
+            Knowledge graph
+          </Link>
+          ). The original file stays the source of truth and can always be
+          re-read.
         </Callout>
       </Section>
 

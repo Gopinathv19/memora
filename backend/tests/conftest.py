@@ -60,7 +60,7 @@ def clean_tables(_environment):
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE extraction_usage, source_extractions, sources, "
+                "TRUNCATE extraction_usage, source_graph_builds, source_extractions, sources, "
                 "subjects, actors, api_credentials, applications, tenants CASCADE"
             )
         )
@@ -110,3 +110,85 @@ def fake_llm(client):
     )
     yield fake
     app.dependency_overrides.pop(get_extraction_agent, None)
+
+
+# --- knowledge graph ------------------------------------------------------------------
+# Graph tests need a real FalkorDB, for the same reason the suite needs a real
+# PostgreSQL: the Cypher is what ships. Set TEST_FALKORDB_URL (e.g. a FalkorDB
+# Cloud instance: falkors://user:password@host:port). Without it the embedded
+# `falkordblite` is used if installed; otherwise graph tests are skipped. Each
+# test works under its own random graph prefix and drops its graphs after, so
+# a shared instance is never polluted.
+
+
+@pytest.fixture(autouse=True)
+def _no_configured_graph(monkeypatch):
+    """Never reach the FalkorDB in backend/.env (e.g. your Cloud instance).
+
+    Without the `graph` fixture the graph is simply off: graph endpoints answer
+    503 and delete/move hooks do nothing. `graph` re-points it at a test store.
+    """
+    from app.graph import store as store_module
+
+    monkeypatch.setattr(store_module, "get_graph_store", lambda: None)
+
+
+@pytest.fixture(scope="session")
+def falkordb_connection(tmp_path_factory):
+    url = os.environ.get("TEST_FALKORDB_URL")
+    if url:
+        from falkordb import FalkorDB
+
+        db = FalkorDB.from_url(url)
+        db.list_graphs()  # fail fast on bad credentials
+        return db
+    try:
+        from redislite.falkordb_client import FalkorDB as EmbeddedFalkorDB
+    except ImportError:
+        return None
+    return EmbeddedFalkorDB(str(tmp_path_factory.mktemp("falkordb") / "graph.db"))
+
+
+@pytest.fixture
+def graph_store(falkordb_connection):
+    import uuid
+
+    from app.graph.store import FalkorGraphStore
+
+    if falkordb_connection is None:
+        pytest.skip("no FalkorDB: set TEST_FALKORDB_URL (or pip install falkordblite)")
+    store = FalkorGraphStore(falkordb_connection, prefix=f"memora_test_{uuid.uuid4().hex[:8]}")
+    yield store
+    for tenant_id in store.tenant_ids():
+        store.drop_tenant_graph(tenant_id)
+
+
+@pytest.fixture
+def graph(client, graph_store, monkeypatch):
+    """The real graph pipeline over a throwaway FalkorDB and a fake graph model.
+
+    Wires the API (dependency overrides) and the post-commit sync hooks
+    (`store.get_graph_store`) to the same store.
+    """
+    from types import SimpleNamespace
+
+    from app.core.config import get_settings
+    from app.graph import store as store_module
+    from app.graph.extraction import GraphExtractor
+    from app.graph.ingestion import GraphIngestionService, get_graph_ingestion
+    from app.graph.ontology import get_ontology
+    from app.graph.retrieval import GraphRetrievalService, get_graph_retrieval
+    from app.main import app
+    from tests.graph_fakes import FakeGraphLLM
+
+    llm = FakeGraphLLM()
+    ingestion = GraphIngestionService(
+        graph_store, GraphExtractor(llm, get_settings(), get_ontology()), get_settings()
+    )
+    retrieval = GraphRetrievalService(graph_store)
+    monkeypatch.setattr(store_module, "get_graph_store", lambda: graph_store)
+    app.dependency_overrides[get_graph_ingestion] = lambda: ingestion
+    app.dependency_overrides[get_graph_retrieval] = lambda: retrieval
+    yield SimpleNamespace(store=graph_store, llm=llm, ingestion=ingestion, retrieval=retrieval)
+    app.dependency_overrides.pop(get_graph_ingestion, None)
+    app.dependency_overrides.pop(get_graph_retrieval, None)

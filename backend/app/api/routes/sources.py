@@ -11,7 +11,13 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import CurrentScope, DbSession, ExtractionAgentDep, Storage
+from app.api.deps import (
+    CurrentScope,
+    DbSession,
+    ExtractionAgentDep,
+    GraphIngestionDep,
+    Storage,
+)
 from app.schemas.enums import ExtractionMode
 from app.schemas.extraction import MAX_INSTRUCTIONS_CHARS, ExtractionRequest
 from app.schemas.source import (
@@ -21,7 +27,7 @@ from app.schemas.source import (
     SourceRead,
     SourceUpdate,
 )
-from app.services import extraction_service, source_service
+from app.services import extraction_service, graph_service, source_service
 from app.storage.local import MAX_UPLOAD_BYTES
 
 subject_router = APIRouter(prefix="/subjects/{subject_id}/sources", tags=["sources"])
@@ -45,6 +51,7 @@ def upload_source(
     scope: CurrentScope,
     storage: Storage,
     agent: ExtractionAgentDep,
+    graph: GraphIngestionDep,
     background: BackgroundTasks,
     file: UploadFile = File(...),
     created_by_actor_id: uuid.UUID | None = Form(default=None),
@@ -53,6 +60,7 @@ def upload_source(
     extract_instructions: str | None = Form(
         default=None, max_length=MAX_INSTRUCTIONS_CHARS
     ),
+    build_graph: bool = Form(default=False),
 ):
     """Register a source by posting the file itself.
 
@@ -63,7 +71,8 @@ def upload_source(
     By default storing the bytes is all that happens and the row lands in
     `pending`. With `extract=true`, extraction version 1 starts in the
     background as soon as the row is committed; the response returns at once
-    with the source in `processing`.
+    with the source in `processing`. Adding `build_graph=true` also builds
+    the knowledge graph once that extraction succeeds.
     """
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -94,6 +103,10 @@ def upload_source(
         background.add_task(
             extraction_service.run_extraction, extraction.id, storage, agent
         )
+        if build_graph:
+            background.add_task(
+                graph_service.build_after_extraction, extraction.id, graph
+            )
         db.refresh(source)
     return source
 

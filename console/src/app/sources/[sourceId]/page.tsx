@@ -8,6 +8,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { ExtractionPanel } from "@/components/ExtractionPanel";
+import { GraphPanel } from "@/components/GraphPanel";
 import {
   Button,
   ErrorState,
@@ -173,7 +174,11 @@ export default function SourceDetailPage() {
         </Panel>
       </div>
 
-      <ExtractionPanel source={data} onStatusChange={source.reload} />
+      <div className="mb-5">
+        <ExtractionPanel source={data} onStatusChange={source.reload} />
+      </div>
+
+      <GraphPanel source={data} />
     </>
   );
 }

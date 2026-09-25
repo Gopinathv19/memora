@@ -211,6 +211,7 @@ function StartExtractionModal({
 }) {
   const [mode, setMode] = useState<ExtractionMode>(reextract ? "deep" : "standard");
   const [instructions, setInstructions] = useState("");
+  const [buildGraph, setBuildGraph] = useState(true);
   const start = useMutation(api.extractions.start);
 
   const submit = async (event: React.FormEvent) => {
@@ -218,6 +219,7 @@ function StartExtractionModal({
     const created = await start.mutate(sourceId, {
       mode,
       instructions: instructions.trim() || null,
+      build_graph: buildGraph,
     });
     if (created) onStarted(created);
   };
@@ -263,6 +265,22 @@ function StartExtractionModal({
             disabled={start.pending}
           />
         </Field>
+        <label className="flex items-start gap-2 rounded-md border border-line px-3 py-2">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={buildGraph}
+            onChange={(event) => setBuildGraph(event.target.checked)}
+            disabled={start.pending}
+          />
+          <span>
+            <span className="text-sm font-medium text-ink">Also build the knowledge graph</span>
+            <span className="mt-0.5 block text-xs text-ink-secondary">
+              When extraction succeeds, find the entities and relationships in the text. One
+              model call per passage; replaces this file&apos;s previous graph.
+            </span>
+          </span>
+        </label>
         {start.error && <InlineError message={start.error} />}
         <div className="flex justify-end gap-2 pt-1">
           <Button onClick={onClose} disabled={start.pending}>

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.core.errors import ConflictError, NotFoundError, ValidationError
 from app.db.models import Actor, Application, Source, Subject, Tenant
+from app.graph import sync as graph_sync
 from app.schemas.subject import (
     SubjectCreate,
     SubjectPathEntry,
@@ -309,21 +310,18 @@ def delete_subject(
     the database's own cascades remove the rest, then -- after the commit --
     the stored objects are removed. That order is the house rule for deletes:
     a failed cleanup leaves a stray object rather than a row pointing at bytes
-    that are already gone.
+    that are already gone. The subtree's knowledge-graph facts follow the same
+    rule.
     """
     subject = get_subject(db, subject_id, scope)
+    tenant_id = subject.tenant_id
     subtree_ids = _descendant_ids(db, subject.id)
-    storage_uris = (
-        db.execute(
-            select(Source.storage_uri).where(
-                Source.subject_id.in_(subtree_ids),
-                Source.storage_uri.is_not(None),
-            )
-        )
-        .scalars()
-        .all()
-    )
+    sources = db.execute(
+        select(Source.id, Source.storage_uri).where(Source.subject_id.in_(subtree_ids))
+    ).all()
     db.delete(subject)
     db.commit()
-    for storage_uri in storage_uris:
-        storage.delete(storage_uri)
+    for _, storage_uri in sources:
+        if storage_uri:
+            storage.delete(storage_uri)
+    graph_sync.forget_sources(tenant_id, [source_id for source_id, _ in sources])

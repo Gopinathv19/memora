@@ -2,6 +2,9 @@
 
 A snapshot of what exists in this repository as of **2026-09-23** (`main` @ `3dc302e`).
 
+> **Update 2026-09-25:** the knowledge graph (FalkorDB) has been built below
+> extraction — see [graph-rag.md](graph-rag.md).
+>
 > **Update 2026-09-24:** the Extraction Agent has since been built on top of
 > this — see [extraction-agent.md](extraction-agent.md). Sections below describe
 > the foundation it sits on; where they say "no LLM / nothing advances a source",
@@ -283,7 +286,8 @@ memora/
 ## 9. Not built yet and known gaps
 
 **Built since:** the Extraction Agent — see
-[extraction-agent.md](extraction-agent.md).
+[extraction-agent.md](extraction-agent.md) — and the knowledge graph — see
+[graph-rag.md](graph-rag.md).
 
 **Not built (by design, next phase):**
 - **Ingestion:** no parsing or OCR of uploaded files, and no LLM extraction.

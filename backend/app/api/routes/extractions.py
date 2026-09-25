@@ -2,9 +2,15 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Body, status
 
-from app.api.deps import CurrentScope, DbSession, ExtractionAgentDep, Storage
+from app.api.deps import (
+    CurrentScope,
+    DbSession,
+    ExtractionAgentDep,
+    GraphIngestionDep,
+    Storage,
+)
 from app.schemas.extraction import ExtractionRead, ExtractionRequest, ExtractionSummary
-from app.services import extraction_service
+from app.services import extraction_service, graph_service
 
 router = APIRouter(prefix="/sources/{source_id}/extractions", tags=["extractions"])
 
@@ -16,6 +22,7 @@ def start_extraction(
     scope: CurrentScope,
     storage: Storage,
     agent: ExtractionAgentDep,
+    graph: GraphIngestionDep,
     background: BackgroundTasks,
     payload: ExtractionRequest = Body(default_factory=ExtractionRequest),
 ):
@@ -23,10 +30,14 @@ def start_extraction(
 
     Returns immediately with the new version in `processing`; poll
     `GET .../extractions/latest` until it is `completed`, `partial` or `failed`.
-    409 if a run for this source is already processing.
+    409 if a run for this source is already processing. With `build_graph`,
+    a knowledge-graph build follows a successful run.
     """
     extraction = extraction_service.start_extraction(db, source_id, payload, scope)
     background.add_task(extraction_service.run_extraction, extraction.id, storage, agent)
+    if payload.build_graph:
+        # Background tasks run in order, so this starts after the run ends.
+        background.add_task(graph_service.build_after_extraction, extraction.id, graph)
     return extraction
 
 

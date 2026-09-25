@@ -18,6 +18,9 @@ import type {
   Extraction,
   ExtractionMode,
   ExtractionSummary,
+  GraphBuild,
+  GraphBuildSummary,
+  GraphResult,
   Source,
   Subject,
   Tenant,
@@ -337,9 +340,41 @@ export const api = {
     /** Start the next version: a first run, a retry, or a re-extract. */
     start: (
       sourceId: string,
-      body: { mode?: ExtractionMode; instructions?: string | null } = {},
+      body: {
+        mode?: ExtractionMode;
+        instructions?: string | null;
+        /** Build the knowledge graph from this version once it succeeds. */
+        build_graph?: boolean;
+      } = {},
     ) =>
       request<Extraction>(`/sources/${sourceId}/extractions`, {
+        method: "POST",
+        body: json(body),
+      }),
+  },
+
+  graph: {
+    /** Every graph build of a source, newest first, without model calls. */
+    builds: (sourceId: string) =>
+      request<GraphBuildSummary[]>(`/sources/${sourceId}/graph/builds`),
+    latest: (sourceId: string) =>
+      request<GraphBuild>(`/sources/${sourceId}/graph/builds/latest`),
+    /** Build from the latest extraction, or re-read only the failed chunks. */
+    build: (sourceId: string, body: { retry_failed?: boolean } = {}) =>
+      request<GraphBuildSummary>(`/sources/${sourceId}/graph`, {
+        method: "POST",
+        body: json(body),
+      }),
+    /** A subject's graph (and, by default, its folders'), for plotting. */
+    view: (subjectId: string, includeSubfolders = true) =>
+      request<GraphResult>(`/subjects/${subjectId}/graph`, {
+        query: { include_subfolders: includeSubfolders ? "true" : "false" },
+      }),
+    query: (
+      subjectId: string,
+      body: { query: string; max_hops?: number; include_subfolders?: boolean },
+    ) =>
+      request<GraphResult>(`/subjects/${subjectId}/graph/query`, {
         method: "POST",
         body: json(body),
       }),

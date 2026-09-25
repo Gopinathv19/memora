@@ -20,3 +20,8 @@ python-docx
 openpyxl
 python-pptx
 Pillow
+
+# Knowledge graph (docs/graph-rag.md). Both MIT. The FalkorDB *server* is a
+# separately run service (FalkorDB Cloud); nothing of it ships in this repo.
+falkordb
+rapidfuzz

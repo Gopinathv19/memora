@@ -8,6 +8,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { FileExplorer } from "@/components/FileExplorer";
+import { SubjectGraph } from "@/components/SubjectGraph";
 import {
   Button,
   ErrorState,
@@ -141,6 +142,10 @@ export default function SubjectDetailPage() {
 
       <div className="mb-5">
         <FileExplorer subjectId={subjectId} applicationId={data.application_id} />
+      </div>
+
+      <div className="mb-5">
+        <SubjectGraph subjectId={subjectId} />
       </div>
 
       {/* Modals are handled inside FileExplorer */}

@@ -80,3 +80,12 @@ class ModelRole(str, Enum):
     LAYOUT = "layout"
     VISION = "vision"
     EXTRACT = "extract"
+    GRAPH = "graph"  # entity / relationship extraction for one graph chunk
+
+
+class GraphBuildStatus(str, Enum):
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    # The graph was written, but some chunks failed; they can be retried.
+    PARTIAL = "partial"
+    FAILED = "failed"

@@ -230,7 +230,7 @@ export interface ExtractionUsageCall {
   id: string;
   provider: string;
   model: string;
-  role: "layout" | "vision" | "extract";
+  role: "layout" | "vision" | "extract" | "graph";
   page: number | null;
   prompt_tokens: number;
   completion_tokens: number;
@@ -273,4 +273,89 @@ export interface UsageReport {
   by_application: UsageGroup[];
   by_model: UsageGroup[];
   by_trigger: UsageGroup[];
+}
+
+/* ------------------------------------------------------- Knowledge graph */
+
+export type GraphBuildStatus = "processing" | "completed" | "partial" | "failed";
+
+export interface FailedChunk {
+  index: number;
+  chunk_id: string;
+  page_start: number | null;
+  page_end: number | null;
+  error: string;
+}
+
+export interface GraphBuildSummary {
+  id: string;
+  source_id: string;
+  tenant_id: string;
+  application_id: string;
+  extraction_id: string;
+  extraction_version: number;
+  retry_of_id: string | null;
+  status: GraphBuildStatus;
+  provider: string;
+  model: string;
+  chunk_chars: number;
+  chunk_overlap: number;
+  chunk_count: number;
+  failed_chunk_count: number;
+  entity_count: number;
+  relationship_count: number;
+  failed_chunks: FailedChunk[];
+  stats: Record<string, number>;
+  error: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost_usd: number;
+  triggered_by_kind: "user" | "credential";
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface GraphBuild extends GraphBuildSummary {
+  usage: ExtractionUsageCall[];
+}
+
+export interface GraphEntity {
+  entity_id: string;
+  name: string;
+  entity_type: string;
+  description: string | null;
+  aliases: string[];
+  mention_count: number;
+  source_ids: string[];
+  source_chunk_ids: string[];
+}
+
+export interface GraphRelationship {
+  source_entity_id: string;
+  source_name: string;
+  relation: string;
+  target_entity_id: string;
+  target_name: string;
+  description: string | null;
+  confidence: number | null;
+  raw_relation: string | null;
+  source_ids: string[];
+  source_chunk_ids: string[];
+}
+
+export interface GraphChunk {
+  chunk_id: string;
+  source_id: string;
+  index: number;
+  page_start: number | null;
+  page_end: number | null;
+  text: string;
+}
+
+export interface GraphResult {
+  seed_entity_ids: string[];
+  entities: GraphEntity[];
+  relationships: GraphRelationship[];
+  source_chunk_ids: string[];
+  chunks: GraphChunk[];
 }

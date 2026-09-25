@@ -26,8 +26,9 @@ class Source(UUIDPrimaryKey, TimestampCreated, Base):
     only thing that writes them, and it always copies them from the parent
     subject rather than from client input.
 
-    Extraction runs hang below a Source (`SourceExtraction`, versioned).
-    Chunks, embeddings and graph relationships come later; none exist yet.
+    Extraction runs hang below a Source (`SourceExtraction`, versioned), and
+    so do knowledge-graph builds (`SourceGraphBuild`); the graph itself lives
+    in FalkorDB, keyed by the source id.
     """
 
     __tablename__ = "sources"

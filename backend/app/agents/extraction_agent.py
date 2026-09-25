@@ -3,8 +3,9 @@
 Its single responsibility is reading. It receives a `ProcessedDocument` (the
 Document Processor's routed units), has NVIDIA models read the parts local
 parsing could not, and returns one validated `ExtractionResult` plus a record
-of every model call it made. It never touches the database, and it creates no
-graph entities, chunks or embeddings.
+of every model call it made, plus the merged document text it read. It never
+touches the database, and it creates no graph entities, chunks or embeddings --
+the graph stage (app/graph) builds on that text afterwards.
 
 The rest of Memora depends on the `ExtractionAgent` protocol, not on this
 implementation or on any provider SDK.
@@ -61,6 +62,9 @@ class UsageRecord:
 class AgentOutput:
     result: ExtractionResult
     usage: list[UsageRecord] = field(default_factory=list)
+    # The merged Markdown the extract model was given, before truncation: the
+    # document as read, which the graph and vector stages build on.
+    content: str | None = None
 
 
 class ExtractionFailed(Exception):
@@ -195,7 +199,8 @@ class NemotronExtractionAgent:
         if not sections:
             raise ExtractionFailed("Nothing readable was found in the document", usage)
 
-        merged = "\n\n".join(sections)
+        content = "\n\n".join(sections)
+        merged = content
         limit = self.settings.extraction_max_input_chars
         if len(merged) > limit:
             merged = merged[:limit]
@@ -230,7 +235,7 @@ class NemotronExtractionAgent:
         incomplete = document.skipped_units > 0 or any(r.status == "failed" for r in readings)
         result = _build_result(raw, source_id=source_id, pages=pages, warnings=warnings)
         result.status = ExtractionStatus.PARTIAL if incomplete else ExtractionStatus.COMPLETED
-        return AgentOutput(result=result, usage=usage)
+        return AgentOutput(result=result, usage=usage, content=content)
 
 
 # -- turning the model's JSON into a validated result -------------------------------
