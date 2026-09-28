@@ -9,9 +9,12 @@ from app.api.routes import (
     auth,
     actors,
     applications,
+    chunks,
     credentials,
     dashboard,
+    embeddings,
     extractions,
+    retrieval,
     sources,
     subjects,
     tenants,
@@ -41,6 +44,21 @@ async def lifespan(_: FastAPI):
             )
     except Exception:
         logging.getLogger(__name__).exception("could not check for interrupted runs")
+
+    # Same recovery for embeddings: rows still `processing` belonged to a
+    # worker that died mid-batch. Back to `pending`, so the next sweep
+    # re-claims them (attempt_count keeps the retry bound honest).
+    try:
+        from app.services.embedding_service import reset_interrupted
+
+        with SessionLocal() as db:
+            interrupted = reset_interrupted(db)
+        if interrupted:
+            logging.getLogger(__name__).warning(
+                "reset %d interrupted embedding(s) to pending", interrupted
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted embeddings")
     yield
 
 
@@ -95,6 +113,9 @@ for router in (
     sources.subject_router,
     sources.router,
     extractions.router,
+    chunks.router,
+    embeddings.router,
+    retrieval.router,
     usage.router,
 ):
     app.include_router(router, prefix=API_PREFIX)

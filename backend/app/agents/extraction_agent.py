@@ -19,7 +19,7 @@ from typing import Protocol
 from app.agents import prompts
 from app.core.config import Settings, get_settings
 from app.llm.client import LLMClient, LLMError, LLMUsage, get_llm_client
-from app.processing.document import DocumentUnit, ProcessedDocument
+from app.processing.document import ProcessedDocument, ReadingUnit
 from app.schemas.enums import ExtractionRoute, ExtractionStatus, ModelRole
 from app.schemas.extraction import (
     ExtractedField,
@@ -58,9 +58,30 @@ class UsageRecord:
 
 
 @dataclass
+class UnitReading:
+    """One unit's transcribed text, preserved for chunking.
+
+    This is the document representation: the per-page Markdown the layout /
+    vision models produced (or the local text for EASY units). It is persisted
+    on `source_extractions.readings` so chunks can be regenerated without
+    re-extracting. See docs/chunking.md.
+    """
+
+    page: int
+    kind: str
+    difficulty: str
+    route: str
+    model: str | None
+    status: str
+    text: str
+    note: str | None = None
+
+
+@dataclass
 class AgentOutput:
     result: ExtractionResult
     usage: list[UsageRecord] = field(default_factory=list)
+    readings: list[UnitReading] = field(default_factory=list)
 
 
 class ExtractionFailed(Exception):
@@ -86,7 +107,7 @@ class ExtractionAgent(Protocol):
 class _Reading:
     """What reading one unit produced."""
 
-    unit: DocumentUnit
+    unit: ReadingUnit
     text: str
     route: ExtractionRoute
     model: str | None
@@ -108,7 +129,7 @@ class NemotronExtractionAgent:
 
     # -- reading ---------------------------------------------------------------
 
-    def _read_layout(self, unit: DocumentUnit) -> _Reading:
+    def _read_layout(self, unit: ReadingUnit) -> _Reading:
         usage: list[UsageRecord] = []
         s = self.settings
         # Layout model first, then the vision model with the same instruction,
@@ -136,7 +157,7 @@ class NemotronExtractionAgent:
             note="page could not be read", usage=usage,
         )
 
-    def _read_vision(self, unit: DocumentUnit) -> _Reading:
+    def _read_vision(self, unit: ReadingUnit) -> _Reading:
         model = self.settings.llm_vision_model
         usage: list[UsageRecord] = []
         described: list[str] = []
@@ -162,7 +183,7 @@ class NemotronExtractionAgent:
             status, note = "fallback", f"{failures} image(s) could not be described"
         return _Reading(unit, text, ExtractionRoute.VISION, model, status, note, usage)
 
-    def _read(self, unit: DocumentUnit) -> _Reading:
+    def _read(self, unit: ReadingUnit) -> _Reading:
         if unit.route == ExtractionRoute.LAYOUT and unit.page_image is not None:
             return self._read_layout(unit)
         if unit.route == ExtractionRoute.VISION and unit.images:
@@ -227,10 +248,23 @@ class NemotronExtractionAgent:
             )
             for r in readings
         ]
+        unit_readings = [
+            UnitReading(
+                page=r.unit.index,
+                kind=r.unit.kind,
+                difficulty=r.unit.difficulty.value,
+                route=r.route.value,
+                model=r.model,
+                status=r.status,
+                text=r.text.strip(),
+                note=r.note,
+            )
+            for r in readings
+        ]
         incomplete = document.skipped_units > 0 or any(r.status == "failed" for r in readings)
         result = _build_result(raw, source_id=source_id, pages=pages, warnings=warnings)
         result.status = ExtractionStatus.PARTIAL if incomplete else ExtractionStatus.COMPLETED
-        return AgentOutput(result=result, usage=usage)
+        return AgentOutput(result=result, usage=usage, readings=unit_readings)
 
 
 # -- turning the model's JSON into a validated result -------------------------------

@@ -20,3 +20,6 @@ python-docx
 openpyxl
 python-pptx
 Pillow
+
+# Embeddings (docs/embeddings.md): pgvector column type for the ORM.
+pgvector

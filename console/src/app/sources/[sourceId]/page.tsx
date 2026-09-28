@@ -8,6 +8,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { ExtractionPanel } from "@/components/ExtractionPanel";
+import { EmbeddingPanel } from "@/components/EmbeddingPanel";
 import {
   Button,
   ErrorState,
@@ -174,6 +175,7 @@ export default function SourceDetailPage() {
       </div>
 
       <ExtractionPanel source={data} onStatusChange={source.reload} />
+      <EmbeddingPanel source={data} onStatusChange={source.reload} />
     </>
   );
 }

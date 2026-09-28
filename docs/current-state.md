@@ -6,6 +6,12 @@ A snapshot of what exists in this repository as of **2026-09-23** (`main` @ `3dc
 > this — see [extraction-agent.md](extraction-agent.md). Sections below describe
 > the foundation it sits on; where they say "no LLM / nothing advances a source",
 > that is now superseded by the extraction stage.
+>
+> **Update 2026-09-25:** the Chunking stage has been built on top of the
+> Extraction Agent — see [chunking.md](chunking.md). The extraction's per-page
+> readings are now persisted, and a pure chunking pipeline turns them into
+> document units, semantic blocks and retrieval chunks. Embeddings, vector
+> indexes and retrieval are the next phase.
 
 It describes only what is implemented. For the reasoning behind the design see
 [decisions.md](decisions.md); for setup and running see the [README](../README.md).
@@ -170,6 +176,7 @@ which one a request uses.
 | Actors | `POST/GET /applications/{id}/actors`, `GET /actors`, `GET/PATCH /actors/{id}` |
 | Subjects | `POST/GET /applications/{id}/subjects`, `GET /subjects`, `GET/PATCH/DELETE /subjects/{id}` |
 | Sources | `POST /subjects/{id}/sources` (metadata only), `POST /subjects/{id}/sources/upload`, `GET /subjects/{id}/sources[/{sid}]`, `GET /sources`, `GET/PATCH/DELETE /sources/{id}`, `GET /sources/{id}/content`, `POST /sources/{id}/move` |
+| Chunking | `POST /sources/{id}/rechunk`, `GET /sources/{id}/chunks` |
 | Health | `GET /health` |
 
 There is no chat, ask, query or search endpoint.
@@ -283,12 +290,12 @@ memora/
 ## 9. Not built yet and known gaps
 
 **Built since:** the Extraction Agent — see
-[extraction-agent.md](extraction-agent.md).
+[extraction-agent.md](extraction-agent.md) — and the Chunking stage — see
+[chunking.md](chunking.md).
 
 **Not built (by design, next phase):**
-- **Ingestion:** no parsing or OCR of uploaded files, and no LLM extraction.
-- **Retrieval:** no Document or Chunk tables, no chunking, no embeddings, no pgvector or other vector store, no graph database.
-- **Answering:** no chat, ask or search endpoint, and no LLM calls of any kind.
+- **Retrieval:** no embeddings, no pgvector or other vector store, no lexical search, no hybrid retrieval, no search/ask endpoint.
+- **Answering:** no chat, ask or search endpoint, and no Memory Agent.
 - **Infrastructure:** no background workers or queues, no Redis, no S3/MinIO backend, no Docker Compose.
 - **Permissions:** no per-subject permissions for actors. The `subject_actors` table is designed but not built.
 

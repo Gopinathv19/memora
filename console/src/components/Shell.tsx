@@ -30,6 +30,9 @@ type IconName =
   | "actors"
   | "subjects"
   | "sources"
+  | "chunks"
+  | "embeddings"
+  | "ask"
   | "credentials"
   | "docs";
 
@@ -43,6 +46,12 @@ const ICON_PATHS: Record<IconName, string> = {
   subjects: "M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h9A1.5 1.5 0 0 1 21 10v8.5A1.5 1.5 0 0 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5Z",
   sources:
     "M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3ZM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3",
+  chunks:
+    "M4 5h7v7H4zM13 5h7v7h-7zM4 14h7v5H4zM13 14h7v5h-7z",
+  embeddings:
+    "M12 3v3M12 18v3M3 12h3M18 12h3M6.3 6.3l2.1 2.1M15.6 15.6l2.1 2.1M17.7 6.3l-2.1 2.1M8.4 15.6l-2.1 2.1M12 8.5A3.5 3.5 0 1 0 12 15.5 3.5 3.5 0 0 0 12 8.5Z",
+  ask:
+    "M12 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM12 17.5V19M12 7.5a4.5 4.5 0 0 0-4.5 4.5M9.75 12h.01M14.25 12h.01",
   credentials:
     "M14.5 3a6.5 6.5 0 0 1 0 13 6.6 6.6 0 0 1-2.4-.45L10 18H8v2H6v2H3v-3l6.6-6.6A6.5 6.5 0 0 1 14.5 3ZM16 7.5h.01",
   docs: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6",
@@ -91,6 +100,17 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/credentials", label: "API credentials", icon: "credentials" },
     ],
+  },
+  {
+    title: "Processing",
+    items: [
+      { href: "/chunks", label: "Chunks", icon: "chunks" },
+      { href: "/embeddings", label: "Embeddings", icon: "embeddings" },
+    ],
+  },
+  {
+    title: "Retrieval",
+    items: [{ href: "/ask", label: "Ask Memora", icon: "ask" }],
   },
 ];
 

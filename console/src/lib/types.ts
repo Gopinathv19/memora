@@ -265,3 +265,173 @@ export interface UsageReport {
   by_model: UsageGroup[];
   by_trigger: UsageGroup[];
 }
+
+/* --------------------------------------------------------- Chunking */
+
+/** A retrieval chunk, as returned by GET /sources/{id}/chunks. */
+export interface RetrievalChunk {
+  id: string;
+  semantic_block_id: string;
+  extraction_id: string;
+  source_version: number;
+  chunk_index: number;
+  content: string;
+  embedding_text: string;
+  token_count: number;
+  content_type: "text" | "table" | "figure" | "mixed" | "key_value" | string;
+  page_start: number | null;
+  page_end: number | null;
+  section_path: string[];
+  is_active: boolean;
+  created_at: string;
+}
+
+/** Response for POST /sources/{id}/rechunk. */
+export interface RechunkResponse {
+  extraction_id: string;
+  source_id: string;
+  version: number;
+  chunk_count: number;
+}
+
+/* --------------------------------------------------------- Embeddings */
+
+export type EmbeddingStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "stale";
+
+/** A registered embedding model, as returned by GET /embedding/models. */
+export interface EmbeddingModel {
+  id: string;
+  provider: string;
+  model_name: string;
+  model_identifier: string;
+  model_version: string | null;
+  embedding_type: string;
+  dimension: number;
+  max_input_tokens: number | null;
+  normalization: string;
+  similarity_metric: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A strategy, with the joined model fields the console displays. */
+export interface EmbeddingStrategy {
+  id: string;
+  name: string;
+  description: string | null;
+  model_id: string;
+  input_type: string;
+  document_template: string;
+  query_template: string;
+  normalization: string;
+  similarity_metric: string;
+  dimension: number;
+  configuration_json: Record<string, unknown>;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  model_provider: string | null;
+  model_name: string | null;
+  model_identifier: string | null;
+}
+
+/** What POST .../embed returns: work queued, not work done. */
+export interface EmbeddingEnqueueResponse {
+  enqueued: number;
+  strategy_id: string;
+  strategy_name: string;
+}
+
+export interface RetryFailedResponse {
+  reset: number;
+  strategy_id: string | null;
+}
+
+/** Scope-wide embedding health, as returned by GET /embedding/stats. */
+export interface EmbeddingStats {
+  total_chunks: number;
+  embedded: number;
+  pending: number;
+  processing: number;
+  failed: number;
+  stale: number;
+  coverage_percent: number;
+}
+
+/** Per-source embedding health, for the source detail page. */
+export interface SourceEmbeddingStatus {
+  source_id: string;
+  strategy_id: string;
+  strategy_name: string;
+  total_chunks: number;
+  embedded: number;
+  pending: number;
+  processing: number;
+  failed: number;
+  stale: number;
+  coverage_percent: number;
+}
+
+/** Chunk-level embedding info for the debug view. */
+export interface ChunkEmbeddingDebug {
+  id: string;
+  strategy_id: string;
+  strategy_name: string;
+  status: EmbeddingStatus | string;
+  input_hash: string;
+  attempt_count: number;
+  error_message: string | null;
+  dimension: number;
+  vector_preview: (number | string)[];
+  model_metadata: Record<string, unknown>;
+  created_at: string;
+  embedded_at: string | null;
+}
+
+/* --------------------------------------------------------- Retrieval */
+
+/** One supporting chunk behind a generated answer, with per-stage scores. */
+export interface RetrievedChunk {
+  chunk_id: string;
+  source_id: string;
+  subject_id: string;
+  content: string;
+  content_type: string;
+  section_path: string[];
+  page_start: number | null;
+  page_end: number | null;
+  token_count: number;
+  similarity: number;
+  rerank_score: number | null;
+}
+
+/** Pipeline observability: candidates at each stage. */
+export interface RetrievalTrace {
+  hnsw_candidates: number;
+  mmr_candidates: number;
+  final_chunks: number;
+  reranker_used: boolean;
+}
+
+export interface QueryUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  latency_ms: number;
+}
+
+/** Response of POST /query: the grounded answer plus its evidence. */
+export interface QueryResponse {
+  query: string;
+  answer: string;
+  strategy_id: string;
+  strategy_name: string;
+  chunks: RetrievedChunk[];
+  retrieval: RetrievalTrace;
+  usage: QueryUsage;
+}

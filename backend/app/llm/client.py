@@ -49,6 +49,10 @@ class LLMClient(Protocol):
         """Ask for a single JSON object and return it parsed."""
         ...
 
+    def chat_text(self, model: str, system: str, user: str) -> tuple[str, LLMUsage]:
+        """Ask for free text and return it cleaned."""
+        ...
+
     def read_image(
         self, model: str, image: bytes, mime: str, prompt: str
     ) -> tuple[str, LLMUsage]:
@@ -219,6 +223,31 @@ class NvidiaLLMClient:
             return parse_json_object(response.choices[0].message.content), total
         except (ValueError, json.JSONDecodeError) as exc:
             raise LLMError(f"model did not return valid JSON: {exc}", usage=total) from exc
+
+    def chat_text(self, model: str, system: str, user: str) -> tuple[str, LLMUsage]:
+        """Free-text generation: the grounded-answer half of the retrieval
+        pipeline. Same optional-parameter shedding as every other call."""
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        optional = {
+            # Nemotron reasoning models: answer directly, no </think> preamble.
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+        }
+        started = time.monotonic()
+        response = self._create(
+            optional,
+            model=model,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=self.settings.llm_max_output_tokens,
+        )
+        usage = self._usage(response, started)
+        text = clean_text(response.choices[0].message.content)
+        if not text:
+            raise LLMError("model returned an empty answer", usage=usage)
+        return text, usage
 
     def read_image(
         self, model: str, image: bytes, mime: str, prompt: str

@@ -19,6 +19,11 @@ from app.db.database import Base
 from app.db.models.mixins import TimestampCreated, UUIDPrimaryKey
 
 if TYPE_CHECKING:
+    from app.db.models.chunking import (
+        DocumentUnit,
+        RetrievalChunk,
+        SemanticBlock,
+    )
     from app.db.models.source import Source
 
 
@@ -99,6 +104,10 @@ class SourceExtraction(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     models: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     # An ExtractionResult (app/schemas/extraction.py), once the run finishes.
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The per-unit document representation: one entry per ReadingUnit with its
+    # transcribed text, route, model and status. The source material chunking
+    # derives from, preserved so chunks can be regenerated without re-extracting.
+    readings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -117,6 +126,24 @@ class SourceExtraction(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="ExtractionUsage.created_at",
+    )
+    document_units: Mapped[list["DocumentUnit"]] = relationship(
+        back_populates="extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="DocumentUnit.position",
+    )
+    semantic_blocks: Mapped[list["SemanticBlock"]] = relationship(
+        back_populates="extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SemanticBlock.position",
+    )
+    retrieval_chunks: Mapped[list["RetrievalChunk"]] = relationship(
+        back_populates="extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RetrievalChunk.chunk_index",
     )
 
 

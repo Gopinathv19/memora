@@ -11,14 +11,24 @@ import type {
   Actor,
   Application,
   AuthResponse,
+  ChunkEmbeddingDebug,
   Credential,
   CredentialCreated,
   DashboardMetrics,
   DashboardStats,
+  EmbeddingEnqueueResponse,
+  EmbeddingModel,
+  EmbeddingStats,
+  EmbeddingStrategy,
   Extraction,
   ExtractionMode,
   ExtractionSummary,
+  QueryResponse,
+  RechunkResponse,
+  RetryFailedResponse,
+  RetrievalChunk,
   Source,
+  SourceEmbeddingStatus,
   Subject,
   Tenant,
   UsageReport,
@@ -349,6 +359,91 @@ export const api = {
     extractions: (params: { tenantId?: string; applicationId?: string } = {}) =>
       request<UsageReport>("/usage/extractions", {
         query: { tenant_id: params.tenantId, application_id: params.applicationId },
+      }),
+  },
+
+  chunks: {
+    /** All retrieval chunks of a source (active version only by default). */
+    list: (sourceId: string, activeOnly = true) =>
+      request<RetrievalChunk[]>(`/sources/${sourceId}/chunks`, {
+        query: { active_only: activeOnly ? "true" : "false" },
+      }),
+    /** Regenerate chunks from the stored readings — no model calls. */
+    rechunk: (sourceId: string) =>
+      request<RechunkResponse>(`/sources/${sourceId}/rechunk`, {
+        method: "POST",
+      }),
+  },
+
+  embeddings: {
+    /** Registered embedding models (global catalog data). */
+    models: () => request<EmbeddingModel[]>("/embedding/models"),
+    strategies: {
+      list: () => request<EmbeddingStrategy[]>("/embedding/strategies"),
+      get: (id: string) => request<EmbeddingStrategy>(`/embedding/strategies/${id}`),
+      create: (
+        body: {
+          name: string;
+          description?: string | null;
+          model_id: string;
+          document_template?: string;
+          query_template?: string;
+        },
+      ) =>
+        request<EmbeddingStrategy>("/embedding/strategies", {
+          method: "POST",
+          body: json(body),
+        }),
+      /** Mutable fields only: description, is_active. */
+      update: (id: string, body: { description?: string; is_active?: boolean }) =>
+        request<EmbeddingStrategy>(`/embedding/strategies/${id}`, {
+          method: "PATCH",
+          body: json(body),
+        }),
+      /** Force re-embed everything in scope under this strategy. */
+      rebuild: (id: string) =>
+        request<EmbeddingEnqueueResponse>(`/embedding/strategies/${id}/rebuild`, {
+          method: "POST",
+        }),
+    },
+    /** Embed a source's active chunks. Idempotent unless force. */
+    embedSource: (sourceId: string, force = false) =>
+      request<EmbeddingEnqueueResponse>(`/embedding/sources/${sourceId}/embed`, {
+        method: "POST",
+        body: json({ force }),
+      }),
+    /** Embed every active chunk under a subject (all its sources). */
+    embedSubject: (subjectId: string, force = false) =>
+      request<EmbeddingEnqueueResponse>(`/embedding/subjects/${subjectId}/embed`, {
+        method: "POST",
+        body: json({ force }),
+      }),
+    /** Reset failed embeddings to pending and drain them. */
+    retryFailed: (strategyId?: string) =>
+      request<RetryFailedResponse>("/embedding/retry-failed", {
+        method: "POST",
+        body: json(strategyId ? { strategy_id: strategyId } : {}),
+      }),
+    /** Scope-wide embedding health: counts + coverage. */
+    stats: () => request<EmbeddingStats>("/embedding/stats"),
+    /** Per-source embedding health, for the source detail page. */
+    sourceStatus: (sourceId: string) =>
+      request<SourceEmbeddingStatus>(`/embedding/sources/${sourceId}/status`),
+    /** Every embedding row for one chunk: status, hash, vector head. */
+    chunkDebug: (chunkId: string) =>
+      request<ChunkEmbeddingDebug[]>(`/embedding/chunks/${chunkId}/embeddings`),
+  },
+
+  retrieval: {
+    /** Ask Memora a question; get a grounded answer + supporting chunks. */
+    ask: (query: string, scope?: { subjectId?: string; sourceId?: string }) =>
+      request<QueryResponse>("/query", {
+        method: "POST",
+        body: json({
+          query,
+          subject_id: scope?.subjectId,
+          source_id: scope?.sourceId,
+        }),
       }),
   },
 
