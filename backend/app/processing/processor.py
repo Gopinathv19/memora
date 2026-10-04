@@ -5,7 +5,7 @@ from app.schemas.enums import ExtractionMode
 
 
 class DocumentProcessor:
-    """Bytes in, routed `DocumentUnit`s out. Pure and local: no model calls.
+    """Bytes in, routed `ReadingUnit`s out. Pure and local: no model calls.
 
     This is the boundary between "what is in the file" and "who reads it". The
     processor decides, per page/slide/sheet, whether local text is good enough

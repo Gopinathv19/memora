@@ -25,3 +25,6 @@ Pillow
 # separately run service (FalkorDB Cloud); nothing of it ships in this repo.
 falkordb
 rapidfuzz
+
+# Embeddings (docs/embeddings.md): pgvector column type for the ORM.
+pgvector

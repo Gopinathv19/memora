@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.agents import ExtractionFailed, NemotronExtractionAgent
 from app.core.config import Settings
-from app.processing import DocumentUnit, ImageBlob, ProcessedDocument
+from app.processing import ImageBlob, ProcessedDocument, ReadingUnit
 from app.schemas.enums import ExtractionRoute, ExtractionStatus, ModelRole, PageDifficulty
 from tests.extraction_fakes import FakeLLMClient
 
@@ -26,12 +26,12 @@ def _doc():
     return ProcessedDocument(
         "pdf",
         [
-            DocumentUnit(1, "page", "Easy page text", PageDifficulty.EASY, ExtractionRoute.TEXT),
-            DocumentUnit(
+            ReadingUnit(1, "page", "Easy page text", PageDifficulty.EASY, ExtractionRoute.TEXT),
+            ReadingUnit(
                 2, "page", "Medium page text", PageDifficulty.MEDIUM,
                 ExtractionRoute.VISION, images=[IMG, IMG],
             ),
-            DocumentUnit(
+            ReadingUnit(
                 3, "page", "hard local text", PageDifficulty.HARD,
                 ExtractionRoute.LAYOUT, page_image=IMG,
             ),
@@ -111,8 +111,8 @@ def test_unreadable_unit_marks_the_result_partial():
     doc = ProcessedDocument(
         "pdf",
         [
-            DocumentUnit(1, "page", "Readable", PageDifficulty.EASY, ExtractionRoute.TEXT),
-            DocumentUnit(2, "page", "", PageDifficulty.HARD, ExtractionRoute.LAYOUT, page_image=IMG),
+            ReadingUnit(1, "page", "Readable", PageDifficulty.EASY, ExtractionRoute.TEXT),
+            ReadingUnit(2, "page", "", PageDifficulty.HARD, ExtractionRoute.LAYOUT, page_image=IMG),
         ],
     )
     agent, _ = _agent(fail_models={LAYOUT, VISION})
@@ -123,7 +123,7 @@ def test_unreadable_unit_marks_the_result_partial():
 
 def test_nothing_readable_fails_without_calling_the_extract_model():
     doc = ProcessedDocument(
-        "image", [DocumentUnit(1, "image", "", PageDifficulty.HARD, ExtractionRoute.VISION, images=[IMG])]
+        "image", [ReadingUnit(1, "image", "", PageDifficulty.HARD, ExtractionRoute.VISION, images=[IMG])]
     )
     agent, client = _agent(fail_models={VISION})
     with pytest.raises(ExtractionFailed) as caught:

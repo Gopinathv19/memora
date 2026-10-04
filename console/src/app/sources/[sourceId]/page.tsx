@@ -8,6 +8,7 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { ExtractionPanel } from "@/components/ExtractionPanel";
+import { EmbeddingPanel } from "@/components/EmbeddingPanel";
 import { GraphPanel } from "@/components/GraphPanel";
 import {
   Button,
@@ -178,7 +179,11 @@ export default function SourceDetailPage() {
         <ExtractionPanel source={data} onStatusChange={source.reload} />
       </div>
 
-      <GraphPanel source={data} />
+      <EmbeddingPanel source={data} onStatusChange={source.reload} />
+
+      <div className="mt-5">
+        <GraphPanel source={data} />
+      </div>
     </>
   );
 }

@@ -176,6 +176,9 @@ def run_extraction(
             usage = output.usage
             extraction.result = output.result.model_dump(mode="json")
             extraction.content = output.content
+            extraction.readings = [
+                r.__dict__ for r in output.readings
+            ] if output.readings else None
             extraction.status = output.result.status.value
             source.status = SourceStatus.COMPLETED.value
         except (ExtractionFailed, UnsupportedDocumentError, MemoraError) as exc:
@@ -191,6 +194,49 @@ def run_extraction(
         _record_usage(db, extraction, usage)
         extraction.finished_at = datetime.now(UTC)
         db.commit()
+
+        # Auto-chunk after a successful extraction (setting-gated). Chunking
+        # is pure and local (no model calls), so it's safe to run here. It
+        # opens its own transaction inside chunk_extraction.
+        if extraction.status in (
+            ExtractionStatus.COMPLETED.value, ExtractionStatus.PARTIAL.value
+        ) and get_settings().chunk_on_extract:
+            try:
+                from app.services.chunking_service import chunk_extraction
+                from app.services.scope import Scope
+
+                # The extraction already passed the scope check when it was
+                # started; chunking derives from the same source, so we use a
+                # credential-style scope matching the source's owners.
+                chunk_extraction(
+                    db, source.id,
+                    Scope.for_credentials(source.tenant_id, source.application_id),
+                    version=extraction.version,
+                )
+            except Exception:
+                log.exception("auto-chunking failed for extraction %s", extraction_id)
+
+        # Auto-embed after a successful auto-chunk (setting-gated). Enqueue is
+        # a local DB write; the provider calls happen in the worker thread,
+        # so a missing API key or a provider outage never fails the extraction.
+        if extraction.status in (
+            ExtractionStatus.COMPLETED.value, ExtractionStatus.PARTIAL.value
+        ) and get_settings().embed_on_chunk:
+            try:
+                from app.services.embedding_service import (
+                    enqueue_embeddings,
+                    kick_worker,
+                )
+
+                enqueued = enqueue_embeddings(
+                    db,
+                    Scope.for_credentials(source.tenant_id, source.application_id),
+                    source_id=source.id,
+                )
+                if enqueued:
+                    kick_worker()
+            except Exception:
+                log.exception("auto-embedding failed for extraction %s", extraction_id)
     except Exception:
         db.rollback()
         log.exception("could not record the outcome of extraction %s", extraction_id)

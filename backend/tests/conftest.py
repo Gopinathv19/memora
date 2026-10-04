@@ -60,7 +60,8 @@ def clean_tables(_environment):
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE extraction_usage, source_graph_builds, source_extractions, sources, "
+                "TRUNCATE chunk_embeddings, retrieval_chunks, semantic_blocks, document_units, "
+                "extraction_usage, source_graph_builds, source_extractions, sources, "
                 "subjects, actors, api_credentials, applications, tenants CASCADE"
             )
         )

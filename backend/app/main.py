@@ -10,10 +10,13 @@ from app.api.routes import (
     auth,
     actors,
     applications,
+    chunks,
     credentials,
     dashboard,
+    embeddings,
     extractions,
     graph,
+    retrieval,
     sources,
     subjects,
     tenants,
@@ -80,6 +83,21 @@ async def lifespan(_: FastAPI):
 
     if settings.falkordb_url:
         threading.Thread(target=_sweep, name="graph-sweep", daemon=True).start()
+
+    # Same recovery for embeddings: rows still `processing` belonged to a
+    # worker that died mid-batch. Back to `pending`, so the next sweep
+    # re-claims them (attempt_count keeps the retry bound honest).
+    try:
+        from app.services.embedding_service import reset_interrupted
+
+        with SessionLocal() as db:
+            interrupted = reset_interrupted(db)
+        if interrupted:
+            logging.getLogger(__name__).warning(
+                "reset %d interrupted embedding(s) to pending", interrupted
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted embeddings")
     yield
 
 
@@ -93,7 +111,8 @@ app = FastAPI(
         "Sources are registered and tracked, the Extraction Agent turns a "
         "stored document into versioned, structured information, and the "
         "knowledge graph (FalkorDB) links the entities and relationships of a "
-        "subject's sources. Embeddings are a later phase."
+        "subject's sources, and the retrieval pipeline chunks and embeds them "
+        "(pgvector) to answer questions."
     ),
     docs_url="/docs",
 )
@@ -137,6 +156,9 @@ for router in (
     extractions.router,
     graph.source_router,
     graph.subject_router,
+    chunks.router,
+    embeddings.router,
+    retrieval.router,
     usage.router,
 ):
     app.include_router(router, prefix=API_PREFIX)

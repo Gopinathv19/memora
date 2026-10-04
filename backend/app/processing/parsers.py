@@ -1,6 +1,6 @@
 """One reader per file type. Local and free: no model is called here.
 
-Each reader turns a file into `DocumentUnit`s and decides each unit's route.
+Each reader turns a file into `ReadingUnit`s and decides each unit's route.
 PDFs are triaged page by page (see triage.py). DOCX/PPTX/XLSX store their text
 and table cells exactly in their XML, so those are read directly and only
 their embedded pictures need a model.
@@ -11,9 +11,9 @@ from pathlib import PurePath
 
 from app.core.config import Settings
 from app.processing.document import (
-    DocumentUnit,
     ImageBlob,
     ProcessedDocument,
+    ReadingUnit,
     UnsupportedDocumentError,
 )
 from app.processing.triage import PageSignals, classify, junk_ratio, route_for
@@ -163,7 +163,7 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
     import pypdfium2 as pdfium
 
     warnings: list[str] = []
-    units: list[DocumentUnit] = []
+    units: list[ReadingUnit] = []
     budget = _ImageBudget(settings.extraction_max_images, warnings)
     try:
         plumber = pdfplumber.open(io.BytesIO(data))
@@ -202,7 +202,7 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
                 if mode == ExtractionMode.DEEP
                 else classify(signals, settings)
             )
-            unit = DocumentUnit(
+            unit = ReadingUnit(
                 index=i + 1,
                 kind="page",
                 text=text,
@@ -288,7 +288,7 @@ def parse_docx(data: bytes, settings: Settings) -> ProcessedDocument:
     budget = _ImageBudget(settings.extraction_max_images, warnings)
     images = budget.take(_readable(pictures))
     budget.finish()
-    unit = DocumentUnit(
+    unit = ReadingUnit(
         index=1,
         kind="document",
         text="\n\n".join(b for b in blocks if b),
@@ -321,7 +321,7 @@ def parse_pptx(data: bytes, settings: Settings) -> ProcessedDocument:
 
     warnings: list[str] = []
     budget = _ImageBudget(settings.extraction_max_images, warnings)
-    units: list[DocumentUnit] = []
+    units: list[ReadingUnit] = []
 
     def walk(shapes, blocks: list[str], pictures: list[ImageBlob], number: int) -> None:
         for shape in shapes:
@@ -352,7 +352,7 @@ def parse_pptx(data: bytes, settings: Settings) -> ProcessedDocument:
                 blocks.append(f"Speaker notes: {notes}")
         images = budget.take(_readable(pictures))
         units.append(
-            DocumentUnit(
+            ReadingUnit(
                 index=number,
                 kind="slide",
                 text="\n\n".join(blocks),
@@ -377,7 +377,7 @@ def parse_xlsx(data: bytes, settings: Settings) -> ProcessedDocument:
         raise UnsupportedDocumentError(f"XLSX could not be opened: {exc}") from exc
 
     warnings: list[str] = []
-    units: list[DocumentUnit] = []
+    units: list[ReadingUnit] = []
     try:
         for number, sheet in enumerate(book.worksheets, start=1):
             rows: list[list[str]] = []
@@ -393,7 +393,7 @@ def parse_xlsx(data: bytes, settings: Settings) -> ProcessedDocument:
                     f"Sheet '{sheet.title}' truncated to its first {MAX_SHEET_ROWS} rows"
                 )
             units.append(
-                DocumentUnit(
+                ReadingUnit(
                     index=number,
                     kind="sheet",
                     text=f"## Sheet: {sheet.title}\n\n{table}" if table else "",
@@ -409,7 +409,7 @@ def parse_xlsx(data: bytes, settings: Settings) -> ProcessedDocument:
 
 def parse_image(data: bytes) -> ProcessedDocument:
     blob = normalize_image(data, "uploaded image")
-    unit = DocumentUnit(
+    unit = ReadingUnit(
         index=1,
         kind="image",
         difficulty=PageDifficulty.HARD,
@@ -427,4 +427,4 @@ def parse_text(data: bytes) -> ProcessedDocument:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
             text = data.decode("latin-1")
-    return ProcessedDocument("text", [DocumentUnit(index=1, kind="document", text=text)])
+    return ProcessedDocument("text", [ReadingUnit(index=1, kind="document", text=text)])

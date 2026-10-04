@@ -24,6 +24,19 @@ config.set_main_option("sqlalchemy.url", get_settings().database_url)
 target_metadata = Base.metadata
 
 
+# Indexes created with raw DDL in a migration because the ORM cannot express
+# them. Autogenerate would otherwise see them as stray and emit a DROP INDEX.
+#   ix_chunk_embeddings_embedding_hnsw -- HNSW over embedding::halfvec(2048)
+#   (migration d4e5f6a7b8c9)
+MIGRATION_ONLY_INDEXES = frozenset({"ix_chunk_embeddings_embedding_hnsw"})
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "index" and name in MIGRATION_ONLY_INDEXES:
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
@@ -31,6 +44,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -47,6 +61,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            include_object=include_object,
         )
         with context.begin_transaction():
             context.run_migrations()
