@@ -41,7 +41,8 @@ def _client(replies, **settings):
         Settings(database_url="postgresql+psycopg://x/y", nvidia_api_key="nvapi-test", **settings)
     )
     stub = StubCompletions(replies)
-    client._client = SimpleNamespace(chat=SimpleNamespace(completions=stub))
+    sdk = SimpleNamespace(chat=SimpleNamespace(completions=stub))
+    client._clients = {"build-nvidia": sdk, "nebius": sdk}
     return client, stub
 
 
@@ -108,7 +109,7 @@ def test_vision_models_get_the_prompt_and_the_image():
 
 def test_missing_api_key_is_a_clear_error():
     client = NvidiaLLMClient(
-        Settings(database_url="postgresql+psycopg://x/y", llm_provider="nebius", nebius_api_key="")
+        Settings(database_url="postgresql+psycopg://x/y", environment="production", nebius_api_key="")
     )
     with pytest.raises(LLMError, match="NEBIUS_API_KEY is not set"):
         client.chat_json("nvidia/x", "sys", "user")
@@ -118,3 +119,19 @@ def test_parse_json_object_finds_the_object_in_chatter():
     assert parse_json_object('Result:\n{"k": "v"}\nThanks') == {"k": "v"}
     with pytest.raises(ValueError):
         parse_json_object("[1, 2]")
+
+
+def test_production_sends_text_to_nebius_and_images_to_build_nvidia():
+    client = NvidiaLLMClient(
+        Settings(database_url="postgresql+psycopg://x/y", environment="production")
+    )
+    text_stub = StubCompletions([_response('{"ok": true}')])
+    image_stub = StubCompletions([_response("A red square.")])
+    client._clients = {
+        "nebius": SimpleNamespace(chat=SimpleNamespace(completions=text_stub)),
+        "build-nvidia": SimpleNamespace(chat=SimpleNamespace(completions=image_stub)),
+    }
+    client.chat_json("nvidia/nemotron-3-super-120b-a12b", "sys", "user")
+    client.read_image("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", b"png", "image/png", "Describe")
+    assert len(text_stub.requests) == 1
+    assert len(image_stub.requests) == 1

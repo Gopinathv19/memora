@@ -1,8 +1,9 @@
 """The one place Memora talks to a model provider.
 
 Both supported providers -- build.nvidia.com and Nebius Token Factory -- expose
-the OpenAI chat-completions API, so a single client pointed at a configurable
-`base_url` serves both. Nothing outside `app/llm` imports the `openai` SDK; the
+the OpenAI chat-completions API, so one SDK client per provider serves both.
+Text calls go to the environment's provider; image calls always go to
+build.nvidia.com, because Nebius serves no NVIDIA vision or parse model. Nothing outside `app/llm` imports the `openai` SDK; the
 Extraction Agent depends on the small `LLMClient` protocol below, which is also
 what tests replace with a fake so the suite never spends credits.
 """
@@ -123,31 +124,33 @@ class NvidiaLLMClient:
 
     def __init__(self, settings: Settings):
         self.settings = settings
+        # The text-model provider; image calls may go elsewhere (see module doc).
         self.provider = settings.llm_provider
-        self._client = None
+        self._clients: dict[str, object] = {}
         self._lock = threading.Lock()
 
-    def _sdk(self):
+    def _sdk(self, provider: str):
         # Built lazily so a missing key fails the run that needs it with a
         # clear message, instead of failing app startup or unrelated requests.
-        if self._client is None:
+        if provider not in self._clients:
             with self._lock:
-                if self._client is None:
-                    if not self.settings.llm_api_key:
-                        env = "NEBIUS_API_KEY" if self.provider == "nebius" else "NVIDIA_API_KEY"
+                if provider not in self._clients:
+                    base_url, api_key = self.settings.llm_endpoint(provider)
+                    if not api_key:
+                        env = "NEBIUS_API_KEY" if provider == "nebius" else "NVIDIA_API_KEY"
                         raise LLMError(f"{env} is not set; add it to backend/.env")
                     import openai
 
-                    self._client = openai.OpenAI(
-                        base_url=self.settings.llm_base_url,
-                        api_key=self.settings.llm_api_key,
+                    self._clients[provider] = openai.OpenAI(
+                        base_url=base_url,
+                        api_key=api_key,
                         timeout=self.settings.llm_timeout_seconds,
                         # The SDK retries 408/409/429/5xx with exponential backoff.
                         max_retries=self.settings.llm_max_retries,
                     )
-        return self._client
+        return self._clients[provider]
 
-    def _create(self, optional: dict, **kwargs):
+    def _create(self, optional: dict, provider: str | None = None, **kwargs):
         """Call chat.completions, dropping optional parameters a model rejects.
 
         Providers differ in what they accept (JSON mode, thinking switches), so
@@ -155,7 +158,7 @@ class NvidiaLLMClient:
         """
         import openai
 
-        sdk = self._sdk()
+        sdk = self._sdk(provider or self.provider)
         extras = dict(optional)
         while True:
             try:
@@ -255,11 +258,13 @@ class NvidiaLLMClient:
         data_url = f"data:{mime};base64,{base64.b64encode(image).decode('ascii')}"
         image_part = {"type": "image_url", "image_url": {"url": data_url}}
         started = time.monotonic()
+        provider = self.settings.llm_provider_for("vision")
 
         if is_nemotron_parse(model):
             # Nemotron-Parse takes only the image and answers via a tool call.
             response = self._create(
                 {},
+                provider,
                 model=model,
                 messages=[{"role": "user", "content": [image_part]}],
                 tools=[{"type": "function", "function": {"name": "markdown_no_bbox"}}],
@@ -276,6 +281,7 @@ class NvidiaLLMClient:
         else:
             response = self._create(
                 {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+                provider,
                 model=model,
                 messages=[
                     {

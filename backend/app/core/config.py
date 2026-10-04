@@ -15,10 +15,22 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # local      : build.nvidia.com for every model call, files on local disk.
+    # production : Nebius Token Factory for text models, files in Cloudflare R2.
+    # Nebius serves no NVIDIA image, embedding or rerank model, so those calls
+    # stay on build.nvidia.com in both environments (see llm_provider_for).
+    environment: Literal["local", "production"] = "local"
+
     database_url: str = "postgresql+psycopg://user:password@localhost:5432/memora"
     #secret key used to hash every api credentials in the db
     api_secret: str = "change-me-in-production"
+    # Local environment: where uploaded source files are written.
     storage_dir: str = "./var/storage"
+    # Production environment: the Cloudflare R2 bucket (S3-compatible API).
+    r2_endpoint_url: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    r2_bucket: str = "memora-documents"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Prefix carried by every raw API token Memora issues.
@@ -38,9 +50,7 @@ class Settings(BaseSettings):
 
     # --- Extraction Agent (docs/extraction-agent.md) -------------------------
     # Two OpenAI-compatible providers, both serving NVIDIA open models.
-    # build.nvidia.com is free and is the default for development; Nebius
-    # Token Factory is what the demo runs on.
-    llm_provider: Literal["build-nvidia", "nebius"] = "build-nvidia"
+    # Which one a call goes to follows from `environment` (llm_provider_for).
     nvidia_api_key: str = ""
     nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
     nebius_api_key: str = ""
@@ -176,12 +186,32 @@ class Settings(BaseSettings):
         return value
 
     @property
+    def llm_provider(self) -> str:
+        """The provider for text models (extract, graph, answer)."""
+        return "nebius" if self.environment == "production" else "build-nvidia"
+
+    def llm_provider_for(self, role: str) -> str:
+        """The provider that serves a model role.
+
+        Nebius has no NVIDIA vision or parse model, so the image roles stay on
+        build.nvidia.com even in production. Every text role follows
+        `llm_provider`.
+        """
+        return "build-nvidia" if role in ("layout", "vision") else self.llm_provider
+
+    def llm_endpoint(self, provider: str) -> tuple[str, str]:
+        """(base_url, api_key) for a provider."""
+        if provider == "nebius":
+            return self.nebius_base_url, self.nebius_api_key
+        return self.nvidia_base_url, self.nvidia_api_key
+
+    @property
     def llm_base_url(self) -> str:
-        return self.nebius_base_url if self.llm_provider == "nebius" else self.nvidia_base_url
+        return self.llm_endpoint(self.llm_provider)[0]
 
     @property
     def llm_api_key(self) -> str:
-        return self.nebius_api_key if self.llm_provider == "nebius" else self.nvidia_api_key
+        return self.llm_endpoint(self.llm_provider)[1]
 
     @property
     def llm_models(self) -> dict[str, str]:

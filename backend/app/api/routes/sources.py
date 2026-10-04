@@ -162,7 +162,7 @@ def download_source(
 ):
     """Stream back the stored bytes, if Memora stored them itself."""
     source = source_service.get_source(db, source_id, scope)
-    if not source.storage_uri:
+    if not source.storage_uri or not storage.owns(source.storage_uri):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="This source has no stored content",

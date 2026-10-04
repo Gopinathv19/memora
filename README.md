@@ -241,8 +241,9 @@ and every run is a new version with its model calls and cost recorded. Design:
 [docs/extraction-agent.md](docs/extraction-agent.md). API reference: the
 `Extractions` page of the docs site.
 
-Setup: put `NVIDIA_API_KEY` (and later `NEBIUS_API_KEY`) in `backend/.env`,
-choose `LLM_PROVIDER`, run `alembic upgrade head`. See `backend/.env.example`.
+Setup: put `NVIDIA_API_KEY` (and, for production, `NEBIUS_API_KEY` and the
+`R2_*` values) in `backend/.env`, set `ENVIRONMENT` to `local` or
+`production`, run `alembic upgrade head`. See `backend/.env.example`.
 
 ## Knowledge graph
 

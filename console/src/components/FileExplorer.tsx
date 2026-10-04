@@ -193,7 +193,7 @@ export function FileExplorer({
             width: "240px",
             cell: (row: Entry) => (
               <div className="flex justify-end gap-2">
-                {row.kind === "file" && row.file.storage_uri?.startsWith("file://") && (
+                {row.kind === "file" && row.file.has_stored_content && (
                   <Button
                     disabled={extract.pending || row.file.status === "processing"}
                     onClick={async () => {
@@ -210,7 +210,7 @@ export function FileExplorer({
                         : "Extract"}
                   </Button>
                 )}
-                {row.kind === "file" && row.file.storage_uri?.startsWith("file://") && (
+                {row.kind === "file" && row.file.has_stored_content && (
                   <a
                     href={api.sources.downloadUrl(row.file.id)}
                     className="inline-flex items-center rounded-md border border-line bg-panel px-3 h-[28px] text-sm font-medium text-ink transition-colors hover:bg-surface-strong"

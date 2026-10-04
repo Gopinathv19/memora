@@ -47,9 +47,9 @@ export default function SourceDetailPage() {
   }
 
   const data = source.data;
-  // Only content Memora stored itself can be streamed back; an s3:// or
-  // https:// URI registered as metadata is not ours to serve.
-  const hasStoredContent = !!data.storage_uri?.startsWith("file://");
+  // Only content Memora stored itself can be streamed back; a URI registered
+  // as metadata is not ours to serve.
+  const hasStoredContent = data.has_stored_content;
 
   return (
     <>

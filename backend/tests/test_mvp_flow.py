@@ -80,6 +80,8 @@ def test_full_ownership_chain(client):
     assert record["filename"] == "employee-handbook.pdf"
     assert record["mime_type"] == "application/pdf"
     assert record["storage_uri"] == "s3://bucket/path/employee-handbook.pdf"
+    # Registered as metadata: Memora did not store these bytes itself.
+    assert record["has_stored_content"] is False
     assert record["status"] == "pending"
 
     # And the detail view resolves the chain to human-readable names.
@@ -139,6 +141,7 @@ def test_upload_a_file_as_an_application(client):
     assert source["mime_type"] == "application/pdf"
     assert source["size_bytes"] == len(payload)
     assert source["storage_uri"].startswith("file://")
+    assert source["has_stored_content"] is True
     assert source["status"] == "pending"
 
     # The stored bytes come back byte-for-byte.

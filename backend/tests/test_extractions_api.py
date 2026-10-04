@@ -238,7 +238,7 @@ def test_nebius_runs_are_priced_from_the_operator_price_list(
         "effective_from": "2026-01-01",
         "providers": {"nebius": {settings.llm_extract_model: {"input_per_1m": 1.0, "output_per_1m": 2.0}}},
     }]}))
-    monkeypatch.setattr(settings, "llm_provider", "nebius")
+    monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "pricing_file", str(price_file))
     pricing.get_price_list.cache_clear()
     try:

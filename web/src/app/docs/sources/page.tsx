@@ -107,7 +107,8 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
   "type": "file",
   "mime_type": "application/pdf",
   "filename": "employee-handbook.pdf",
-  "storage_uri": "local://a41e…/9d77…/4b19….pdf",
+  "storage_uri": "s3://memora-documents/a41e…/9d77…/4b19…-employee-handbook.pdf",
+  "has_stored_content": true,
   "size_bytes": 74449,
   "status": "pending",
   "created_at": "2026-09-22T17:04:38.913Z"
@@ -281,7 +282,8 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
       <Section title="Download the bytes">
         <Endpoint method="GET" path="/api/v1/sources/{source_id}/content">
           Streams the stored file back. Only meaningful for sources that were
-          uploaded — one registered by <C>storage_uri</C> has no bytes here.
+          uploaded, where <C>has_stored_content</C> is <C>true</C>. One
+          registered by <C>storage_uri</C> has no bytes here and answers 404.
         </Endpoint>
         <CodeTabs
           sample={{

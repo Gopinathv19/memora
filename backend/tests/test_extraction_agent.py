@@ -164,10 +164,25 @@ def test_only_nvidia_models_are_accepted(field):
 def test_provider_switch_changes_endpoint_and_key():
     nebius = Settings(
         database_url="postgresql+psycopg://x/y",
-        llm_provider="nebius", nebius_api_key="nb", nvidia_api_key="nv",
+        environment="production", nebius_api_key="nb", nvidia_api_key="nv",
     )
     assert nebius.llm_base_url.startswith("https://api.tokenfactory.nebius.com")
     assert nebius.llm_api_key == "nb"
-    nvidia = Settings(database_url="postgresql+psycopg://x/y", nvidia_api_key="nv")
+    nvidia = Settings(
+        database_url="postgresql+psycopg://x/y", environment="local", nvidia_api_key="nv"
+    )
     assert nvidia.llm_base_url == "https://integrate.api.nvidia.com/v1"
     assert nvidia.llm_api_key == "nv"
+
+
+def test_image_roles_stay_on_build_nvidia_in_production():
+    # Nebius serves no NVIDIA vision or parse model.
+    prod = Settings(database_url="postgresql+psycopg://x/y", environment="production")
+    assert prod.llm_provider_for("extract") == "nebius"
+    assert prod.llm_provider_for("graph") == "nebius"
+    assert prod.llm_provider_for("layout") == "build-nvidia"
+    assert prod.llm_provider_for("vision") == "build-nvidia"
+    local = Settings(database_url="postgresql+psycopg://x/y", environment="local")
+    assert {local.llm_provider_for(r) for r in ("extract", "graph", "layout", "vision")} == {
+        "build-nvidia"
+    }

@@ -99,6 +99,9 @@ export interface Source {
   mime_type: string | null;
   filename: string | null;
   storage_uri: string | null;
+  // True when Memora stored the bytes itself (local disk or its R2 bucket),
+  // so they can be extracted and downloaded. Decided by the backend.
+  has_stored_content: boolean;
   size_bytes: number | null;
   status: string;
   created_at: string;

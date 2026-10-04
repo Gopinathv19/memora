@@ -38,7 +38,7 @@ from app.schemas.extraction import (
 )
 from app.services.scope import Scope
 from app.services.source_service import get_source
-from app.storage import StorageBackend
+from app.storage import StorageBackend, get_storage
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +65,9 @@ def start_extraction(
         select(Source).where(Source.id == source_id).with_for_update()
     ).scalar_one()
 
-    if not source.storage_uri:
+    # A URI registered as metadata (another bucket, an https:// link) is
+    # not something Memora can read, even though the column is set.
+    if not source.storage_uri or not get_storage().owns(source.storage_uri):
         raise ValidationError("This source has no stored content to extract")
     if request.actor_id is not None:
         actor = db.get(Actor, request.actor_id)
@@ -111,9 +113,13 @@ def start_extraction(
 def _record_usage(db: Session, extraction: SourceExtraction, records: list[UsageRecord]) -> None:
     # Priced from the operator's price list (app/core/pricing.py) as of the
     # run's start, and the rate applied is stored with each call.
+    settings = get_settings()
     for record in records:
+        # Image roles can run on a different provider than the run's text
+        # models (see Settings.llm_provider_for), so price each call by its own.
+        provider = settings.llm_provider_for(record.role.value)
         cost, price = price_call(
-            extraction.provider,
+            provider,
             record.model,
             record.role.value,
             record.prompt_tokens,
@@ -130,7 +136,7 @@ def _record_usage(db: Session, extraction: SourceExtraction, records: list[Usage
                 triggered_by_user_id=extraction.triggered_by_user_id,
                 triggered_by_credential_id=extraction.triggered_by_credential_id,
                 actor_id=extraction.actor_id,
-                provider=extraction.provider,
+                provider=provider,
                 model=record.model,
                 role=record.role.value,
                 page=record.page,

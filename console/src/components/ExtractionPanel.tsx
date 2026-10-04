@@ -101,7 +101,7 @@ export function ExtractionPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [running]);
 
-  const canExtract = !!source.storage_uri?.startsWith("file://");
+  const canExtract = source.has_stored_content;
   const hasVersions = (versions.data?.length ?? 0) > 0;
 
   return (
