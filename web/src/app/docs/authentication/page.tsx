@@ -51,15 +51,13 @@ export default function AuthenticationPage() {
           uses, and what creating tenants and issuing credentials requires — an
           API credential cannot mint another credential.
         </P>
+        <P>
+          Signing in is Google only: there is no email and password login.
+        </P>
         <Ul>
           <li>
-            <C>POST /auth/signup</C> — email, password, name.
-          </li>
-          <li>
-            <C>POST /auth/login</C> — email, password.
-          </li>
-          <li>
-            <C>POST /auth/google</C> — a Google ID token.
+            <C>POST /auth/google</C> — a Google ID token. The first sign-in
+            creates the account.
           </li>
           <li>
             <C>GET /auth/me</C> — the current user, or <C>401</C>.

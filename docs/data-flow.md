@@ -19,7 +19,7 @@ tenants → applications → subjects → (sources)
 | `tenants` | The organization. Top of the ownership chain. |
 | `applications` | A project inside a tenant. API credentials are scoped to one. |
 | `subjects` | A folder / topic inside an application. Nestable (parent_id). |
-| `users` | Console login accounts (email, password hash, avatar). |
+| `users` | Console login accounts (email, name, avatar), signed in with Google. |
 | `authenticated_user` | Console auth sessions / refresh tokens. |
 | `api_credentials` | API keys (`memora_…`) a consuming application authenticates with. |
 | `actors` | The consuming application's own end users, when it identifies them. Audit only — never ownership. |

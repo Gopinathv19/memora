@@ -55,16 +55,17 @@ export default function TenantsPage() {
             python: `import httpx
 
 session = httpx.Client(base_url="${API_BASE_URL}/api/v1")
-session.post("/auth/login", json={"email": EMAIL, "password": PASSWORD})
+# GOOGLE_ID_TOKEN comes from Google sign-in for the console's client id.
+session.post("/auth/google", json={"id_token": GOOGLE_ID_TOKEN})
 
 tenant = session.post("/tenants", json={"name": "Pranav Tools"}).json()`,
-            js: `// The session cookie is set by the login call; \`credentials: "include"\`
-// is what sends it back on every subsequent request.
-await fetch("${API_BASE_URL}/api/v1/auth/login", {
+            js: `// The session cookie is set by the Google sign-in call; \`credentials:
+// "include"\` is what sends it back on every subsequent request.
+await fetch("${API_BASE_URL}/api/v1/auth/google", {
   method: "POST",
   credentials: "include",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email, password }),
+  body: JSON.stringify({ id_token: googleIdToken }),
 });
 
 const tenant = await fetch("${API_BASE_URL}/api/v1/tenants", {

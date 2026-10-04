@@ -1,4 +1,4 @@
-"""API-credential token , console passwords , session handling. """
+"""API-credential tokens and console session handling."""
 
 import hashlib
 import hmac
@@ -7,7 +7,6 @@ import uuid
 from datetime import UTC , datetime , timedelta
 from typing import Any
 
-import bcrypt
 import jwt
 
 
@@ -49,19 +48,6 @@ def is_api_token(value:str)->bool:
 
 
 # handling the console
-
-def hash_password(password:str)-> str:
-    psw=bcrypt.hashpw(password.encode("utf-8"),bcrypt.gensalt()).decode("utf-8")
-    return psw
-
-
-def verify_password(password:str,hashed_password:str)->bool:
-    try:
-        return bcrypt.checkpw(password.encode("utf-8"),hashed_password.encode("utf-8"))
-
-    except:
-        return False
-
 
 def create_session_token(user_id:uuid.UUID,email:str) -> str:
     settings = get_settings()

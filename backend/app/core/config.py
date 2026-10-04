@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     auth_cookie_secure: bool = False
     auth_cookie_samesite: str = "lax"
 
+    # Google sign-in is the only console login. Required: the backend checks
+    # every Google ID token was minted for this client id. No client secret
+    # is needed for the ID-token flow.
     google_client_id: str = ""
 
     # --- Extraction Agent (docs/extraction-agent.md) -------------------------

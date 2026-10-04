@@ -7,7 +7,6 @@ pydantic
 pydantic-settings
 python-multipart==0.0.20
 pyjwt
-bcrypt
 httpx
 
 # Production file storage: Cloudflare R2 through its S3-compatible API.

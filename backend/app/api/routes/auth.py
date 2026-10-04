@@ -1,4 +1,4 @@
-"""Console authentication endpoints.
+"""Console authentication endpoints. Google sign-in is the only way in.
 
 The session token never appears in a response body. It goes out as an HttpOnly
 cookie, so a cross-site scripting bug on the console cannot read it.
@@ -10,13 +10,7 @@ from app.api.deps import CurrentUser, DbSession
 from app.core.config import get_settings
 from app.core.security import create_session_token
 from app.db.models import Users
-from app.schemas.auth import (
-    AuthResponse,
-    GoogleLoginRequest,
-    LoginRequest,
-    SignUpRequest,
-    UserRead,
-)
+from app.schemas.auth import AuthResponse, GoogleLoginRequest, UserRead
 from app.services import auth_services
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -51,31 +45,11 @@ def _authenticated(response: Response, user: Users) -> AuthResponse:
     return AuthResponse(user=UserRead.model_validate(user))
 
 
-@router.post(
-    "/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
-)
-def signup(payload: SignUpRequest, response: Response, db: DbSession) -> AuthResponse:
-    user = auth_services.signup_with_password(
-        db,
-        email=str(payload.email),
-        password=payload.password,
-        name=payload.name,
-    )
-    return _authenticated(response, user)
-
-
-@router.post("/login", response_model=AuthResponse)
-def login(payload: LoginRequest, response: Response, db: DbSession) -> AuthResponse:
-    user = auth_services.login_with_password(
-        db, email=str(payload.email), password=payload.password
-    )
-    return _authenticated(response, user)
-
-
 @router.post("/google", response_model=AuthResponse)
 def google_login(
     payload: GoogleLoginRequest, response: Response, db: DbSession
 ) -> AuthResponse:
+    """Sign in with Google. The first sign-in creates the account."""
     user = auth_services.login_with_google(db, id_token=payload.id_token)
     return _authenticated(response, user)
 

@@ -3,19 +3,14 @@
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Field, TextInput } from "@/components/form";
-import { Button, InlineError } from "@/components/ui";
+import { InlineError } from "@/components/ui";
 import { ApiError, api } from "@/lib/api";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 
-type Mode = "login" | "signup";
-
+// Google is the only way into the console. The first sign-in creates the
+// account; an account from the old email/password login is linked by email.
 export default function LoginPage() {
-  const [mode, setMode] = useState<Mode>("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const googleSlot = useRef<HTMLDivElement>(null);
@@ -25,23 +20,6 @@ export default function LoginPage() {
   const finish = useCallback(() => {
     window.location.href = "/";
   }, []);
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    try {
-      if (mode === "login") {
-        await api.auth.login({ email, password });
-      } else {
-        await api.auth.signup({ email, password, name });
-      }
-      finish();
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "Something went wrong");
-      setBusy(false);
-    }
-  }
 
   const handleGoogle = useCallback(
     async (response: { credential: string }) => {
@@ -70,6 +48,7 @@ export default function LoginPage() {
     google.accounts.id.renderButton(googleSlot.current, {
       theme: "outline",
       size: "large",
+      text: "continue_with",
       width: 320,
     });
   }, [handleGoogle]);
@@ -96,78 +75,29 @@ export default function LoginPage() {
           Memora Console
         </div>
 
-        <h1 className="mb-4 text-lg font-medium text-ink">
-          {mode === "login" ? "Sign in" : "Create an account"}
-        </h1>
+        <h1 className="mb-1 text-lg font-medium text-ink">Sign in</h1>
+        <p className="mb-5 text-sm text-ink-secondary">
+          Use your Google account. The first sign-in creates your account.
+        </p>
 
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          {mode === "signup" && (
-            <Field label="Name">
-              <TextInput
-                value={name}
-                onChange={setName}
-                placeholder="Your name"
-                disabled={busy}
-              />
-            </Field>
-          )}
-
-          <Field label="Email" required>
-            <TextInput
-              type="email"
-              value={email}
-              onChange={setEmail}
-              placeholder="you@example.com"
-              required
-              disabled={busy}
-            />
-          </Field>
-
-          <Field
-            label="Password"
-            required
-            hint={mode === "signup" ? "At least 8 characters" : undefined}
-          >
-            <TextInput
-              type="password"
-              value={password}
-              onChange={setPassword}
-              required
-              disabled={busy}
-            />
-          </Field>
-
-          {error && <InlineError message={error} />}
-
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}
-          </Button>
-        </form>
-
-        {GOOGLE_CLIENT_ID && (
-          <>
-            <div className="my-4 flex items-center gap-3 text-xs text-ink-tertiary">
-              <span className="h-px flex-1 bg-line" />
-              or
-              <span className="h-px flex-1 bg-line" />
-            </div>
-            <div ref={googleSlot} className="flex justify-center" />
-          </>
+        {GOOGLE_CLIENT_ID ? (
+          <div
+            ref={googleSlot}
+            aria-busy={busy}
+            className={`flex justify-center ${busy ? "pointer-events-none opacity-60" : ""}`}
+          />
+        ) : (
+          <InlineError message="Google sign-in is not configured. Set NEXT_PUBLIC_GOOGLE_CLIENT_ID in console/.env.local and restart the console." />
         )}
 
-        <p className="mt-5 text-center text-sm text-ink-secondary">
-          {mode === "login" ? "No account yet?" : "Already have an account?"}{" "}
-          <button
-            type="button"
-            className="font-medium text-ink hover:underline"
-            onClick={() => {
-              setMode(mode === "login" ? "signup" : "login");
-              setError(null);
-            }}
-          >
-            {mode === "login" ? "Create one" : "Sign in"}
-          </button>
-        </p>
+        {busy && (
+          <p className="mt-3 text-center text-sm text-ink-secondary">Signing in…</p>
+        )}
+        {error && (
+          <div className="mt-3">
+            <InlineError message={error} />
+          </div>
+        )}
       </div>
     </div>
   );

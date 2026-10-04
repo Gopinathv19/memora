@@ -42,7 +42,7 @@ const BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
-  const PUBLIC_PATHS = ["/auth/login","/auth/signup","/auth/google"]
+  const PUBLIC_PATHS = ["/auth/google"]
 
 export class ApiError extends Error {
   constructor(
@@ -484,10 +484,6 @@ export const api = {
 
     auth: {
     me: () => request<User>("/auth/me"),
-    signup: (body: { email: string; password: string; name?: string }) =>
-      request<AuthResponse>("/auth/signup", { method: "POST", body: json(body) }),
-    login: (body: { email: string; password: string }) =>
-      request<AuthResponse>("/auth/login", { method: "POST", body: json(body) }),
     google: (idToken: string) =>
       request<AuthResponse>("/auth/google", {
         method: "POST",

@@ -54,7 +54,7 @@ embeds or answers questions yet.
  │  AUTH LAYER   api/deps.py → get_scope()                                           │
  │   ├─ "memora_…" token → credential_service.authenticate_token (HMAC-SHA256)       │
  │   │                      → Scope(kind="credential", one tenant + one application) │
- │   └─ session cookie   → auth_services (bcrypt / Google tokeninfo)                 │
+ │   └─ session cookie   → auth_services (Google tokeninfo)                          │
  │                          → Scope(kind="user", every tenant the user owns)         │
  │   Rows outside the scope → 404                                                    │
  │                                                                                   │
@@ -93,7 +93,7 @@ embeds or answers questions yet.
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic v2, pydantic-settings |
-| Auth libraries | PyJWT (HS256), bcrypt, httpx (Google tokeninfo) |
+| Auth libraries | PyJWT (HS256), httpx (Google tokeninfo) |
 | Database | PostgreSQL (Neon in practice, or local `postgres:16-alpine`) |
 | File storage | Local filesystem behind a `StorageBackend` protocol |
 | Console | Next.js 16 App Router, React 19, Tailwind 4, TypeScript |
@@ -123,7 +123,7 @@ Every table uses a UUID primary key (`gen_random_uuid()`) and `created_at`
 | Table | Key columns | Notes |
 |---|---|---|
 | `users` | `email` (unique), `email_verified`, `name`, `avatar_url` | A console user |
-| `authenticated_user` | `user_id`, `provider`, `provider_user_id`, `password_hash` | One row per login method (password or Google) |
+| `authenticated_user` | `user_id`, `provider`, `provider_user_id`, `password_hash` | The Google identity behind a user. `password_hash` is legacy, from the removed password login |
 | `tenants` | `name`, `user_owner_id` → `users.id`, `status` | The top of the ownership chain |
 | `applications` | `tenant_id`, `name`, `slug`, `status` | A client app inside a tenant |
 | `api_credentials` | `application_id`, `name`, `token_hash`, `token_preview`, `last_used_at`, `expires_at`, `status` | Only the HMAC hash of the token is stored |
@@ -158,7 +158,7 @@ which one a request uses.
 | Caller | How it authenticates | Resulting scope |
 |---|---|---|
 | **API credential** (client application) | `Authorization: Bearer memora_<32 random bytes>` | `Scope(kind="credential")`: exactly one tenant and one application |
-| **Console user** | `memora_session` HttpOnly cookie holding an HS256 JWT, valid 7 days. Obtained through `/auth/signup`, `/auth/login` (bcrypt) or `/auth/google` (tokeninfo). | `Scope(kind="user")`: every tenant where `tenants.user_owner_id = user.id` |
+| **Console user** | `memora_session` HttpOnly cookie holding an HS256 JWT, valid 7 days. Obtained only through `/auth/google` (tokeninfo); email/password login was removed. | `Scope(kind="user")`: every tenant where `tenants.user_owner_id = user.id` |
 
 **Rules**
 - A row outside the caller's scope returns **404, never 403**, so its existence isn't revealed.
@@ -171,7 +171,7 @@ which one a request uses.
 
 | Area | Routes |
 |---|---|
-| Auth | `POST /auth/signup`, `POST /auth/login`, `POST /auth/google`, `GET /auth/me`, `POST /auth/logout` |
+| Auth | `POST /auth/google`, `GET /auth/me`, `POST /auth/logout` |
 | Dashboard | `GET /stats`, `GET /stats/metrics`, `GET /whoami` |
 | Tenants | `POST /tenants`, `GET /tenants`, `GET/PATCH /tenants/{id}` |
 | Applications | `POST/GET /tenants/{id}/applications`, `GET /applications`, `GET/PATCH /applications/{id}` |
@@ -271,7 +271,7 @@ memora/
 | 2026-09-23 | `3dc302e` | PR #1 (`initiall-rollout`) merged into `main` |
 
 ### Feature summary
-- **Accounts and auth:** email/password and Google sign-in for console users, with a session cookie. Scoped API credentials for client apps. Credentials can be revoked and expire.
+- **Accounts and auth:** Google sign-in (only) for console users, with a session cookie. Scoped API credentials for client apps. Credentials can be revoked and expire.
 - **Ownership chain:** CRUD for tenants, applications, credentials, actors, subjects and sources, with every query scoped to what the caller owns.
 - **Workspaces as a folder tree:** nested subjects, with rename, move (cycle-safe) and delete (subtree plus bytes).
 - **File registration:** upload (up to 50 MiB, any type), metadata-only registration, file move between folders, content streaming, delete.
