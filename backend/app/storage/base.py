@@ -19,6 +19,14 @@ class StorageBackend(Protocol):
     one-line change in `get_storage()` rather than a change at every call site.
     """
 
+    def owns(self, storage_uri: str) -> bool:
+        """Whether this backend stored `storage_uri` and can read it back.
+
+        A URI registered as metadata (someone else's bucket, an https:// link)
+        is not owned: Memora can neither extract nor serve it.
+        """
+        ...
+
     def put(self, key: str, fileobj: BinaryIO, content_type: str | None) -> StoredObject:
         """Stream `fileobj` to storage under `key` and return its location."""
         ...

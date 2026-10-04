@@ -15,7 +15,7 @@ class ImageBlob:
 
 
 @dataclass
-class DocumentUnit:
+class ReadingUnit:
     """One independently-read piece of a document.
 
     A PDF page, a slide, a spreadsheet sheet, a standalone image, or the whole
@@ -24,9 +24,14 @@ class DocumentUnit:
 
     * TEXT   -- `text` is already reliable; no model call.
     * VISION -- `text` is reliable, but `images` must be described by the
-                vision model (or, for an image file, the image *is* the unit).
+                 vision model (or, for an image file, the image *is* the unit).
     * LAYOUT -- `page_image` is the whole page rendered; the layout model
                 transcribes it. `text` is kept as the last-resort fallback.
+
+    Renamed from `DocumentUnit` so the chunking layer can use that name for a
+    heading/paragraph/table element (see docs/chunking.md). This is the
+    extraction-layer routing unit; the chunking layer's `DocumentUnit` is a
+    finer-grained element parsed from the readings this unit produces.
     """
 
     index: int
@@ -44,6 +49,6 @@ class ProcessedDocument:
     """What the Document Processor hands the Extraction Agent. No model output."""
 
     format: str
-    units: list[DocumentUnit]
+    units: list[ReadingUnit]
     skipped_units: int = 0
     warnings: list[str] = field(default_factory=list)

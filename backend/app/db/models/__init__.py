@@ -6,12 +6,20 @@ registered on `Base.metadata` before it inspects the database.
 The ownership chain modelled here is:
 
     Tenant -> Application -> Actor -> Subject -> Source -> SourceExtraction
+                                                          -> SourceGraphBuild
 """
 
 from app.db.models.actor import Actor
 from app.db.models.application import Application
+from app.db.models.chunking import (
+    DocumentUnit,
+    RetrievalChunk,
+    SemanticBlock,
+)
 from app.db.models.credential import ApiCredential
+from app.db.models.embedding import ChunkEmbedding, EmbeddingModel, EmbeddingStrategy
 from app.db.models.extraction import ExtractionUsage, SourceExtraction
+from app.db.models.graph import SourceGraphBuild
 from app.db.models.source import Source
 from app.db.models.subject import Subject
 from app.db.models.tenant import Tenant
@@ -27,6 +35,13 @@ __all__ = [
     "Source",
     "SourceExtraction",
     "ExtractionUsage",
+    "SourceGraphBuild",
+    "DocumentUnit",
+    "SemanticBlock",
+    "RetrievalChunk",
+    "EmbeddingModel",
+    "EmbeddingStrategy",
+    "ChunkEmbedding",
     "Users",
-    "Authenticated_User"
+    "Authenticated_User",
 ]

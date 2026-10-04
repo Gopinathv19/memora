@@ -35,21 +35,31 @@ def client(_environment) -> TestClient:
 def _console_session(client, _environment):
     """One console user, signed in once, for the whole session.
 
-    Console authentication landed after this suite was written, and every
-    management endpoint now requires a session. TestClient persists cookies,
-    so a single signup (or login, on a database that already holds the user)
-    authenticates every request the tests make without headers. The users
-    tables are deliberately not truncated between tests, so the session
-    survives; requests that carry a `memora_` bearer token still resolve as
-    credentials, because the bearer wins over the cookie.
+    Every management endpoint requires a session, and the only real way to get
+    one is Google sign-in, which a test cannot complete. So the user row is
+    created directly and the session cookie minted with the same function the
+    /auth/google route uses. TestClient persists cookies, so this authenticates
+    every request the tests make without headers. The users tables are
+    deliberately not truncated between tests, so the session survives;
+    requests that carry a `memora_` bearer token still resolve as credentials,
+    because the bearer wins over the cookie.
     """
-    credentials = {"email": "console@example.com", "password": "test-password-123"}
-    response = client.post(
-        "/api/v1/auth/signup", json={**credentials, "name": "Console Test"}
-    )
-    if response.status_code == 409:  # A previous run already created the user.
-        response = client.post("/api/v1/auth/login", json=credentials)
-    assert response.status_code in (200, 201), response.text
+    from app.core.config import get_settings
+    from app.core.security import create_session_token
+    from app.db.database import SessionLocal
+    from app.services import auth_services
+
+    email = "console@example.com"
+    with SessionLocal() as db:
+        user = auth_services.find_user_by_email(db, email)
+        if user is None:  # A previous run may already have created it.
+            user = auth_services.create_user(
+                db, email=email, email_verified=True, name="Console Test"
+            )
+            db.commit()
+        user_id = user.id
+    client.cookies.set(get_settings().auth_cookie_name, create_session_token(user_id, email))
+    assert client.get("/api/v1/auth/me").status_code == 200
 
 
 @pytest.fixture(autouse=True)
@@ -60,7 +70,8 @@ def clean_tables(_environment):
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE extraction_usage, source_extractions, sources, "
+                "TRUNCATE chunk_embeddings, retrieval_chunks, semantic_blocks, document_units, "
+                "extraction_usage, source_graph_builds, source_extractions, sources, "
                 "subjects, actors, api_credentials, applications, tenants CASCADE"
             )
         )
@@ -110,3 +121,85 @@ def fake_llm(client):
     )
     yield fake
     app.dependency_overrides.pop(get_extraction_agent, None)
+
+
+# --- knowledge graph ------------------------------------------------------------------
+# Graph tests need a real FalkorDB, for the same reason the suite needs a real
+# PostgreSQL: the Cypher is what ships. Set TEST_FALKORDB_URL (e.g. a FalkorDB
+# Cloud instance: falkors://user:password@host:port). Without it the embedded
+# `falkordblite` is used if installed; otherwise graph tests are skipped. Each
+# test works under its own random graph prefix and drops its graphs after, so
+# a shared instance is never polluted.
+
+
+@pytest.fixture(autouse=True)
+def _no_configured_graph(monkeypatch):
+    """Never reach the FalkorDB in backend/.env (e.g. your Cloud instance).
+
+    Without the `graph` fixture the graph is simply off: graph endpoints answer
+    503 and delete/move hooks do nothing. `graph` re-points it at a test store.
+    """
+    from app.graph import store as store_module
+
+    monkeypatch.setattr(store_module, "get_graph_store", lambda: None)
+
+
+@pytest.fixture(scope="session")
+def falkordb_connection(tmp_path_factory):
+    url = os.environ.get("TEST_FALKORDB_URL")
+    if url:
+        from falkordb import FalkorDB
+
+        db = FalkorDB.from_url(url)
+        db.list_graphs()  # fail fast on bad credentials
+        return db
+    try:
+        from redislite.falkordb_client import FalkorDB as EmbeddedFalkorDB
+    except ImportError:
+        return None
+    return EmbeddedFalkorDB(str(tmp_path_factory.mktemp("falkordb") / "graph.db"))
+
+
+@pytest.fixture
+def graph_store(falkordb_connection):
+    import uuid
+
+    from app.graph.store import FalkorGraphStore
+
+    if falkordb_connection is None:
+        pytest.skip("no FalkorDB: set TEST_FALKORDB_URL (or pip install falkordblite)")
+    store = FalkorGraphStore(falkordb_connection, prefix=f"memora_test_{uuid.uuid4().hex[:8]}")
+    yield store
+    for tenant_id in store.tenant_ids():
+        store.drop_tenant_graph(tenant_id)
+
+
+@pytest.fixture
+def graph(client, graph_store, monkeypatch):
+    """The real graph pipeline over a throwaway FalkorDB and a fake graph model.
+
+    Wires the API (dependency overrides) and the post-commit sync hooks
+    (`store.get_graph_store`) to the same store.
+    """
+    from types import SimpleNamespace
+
+    from app.core.config import get_settings
+    from app.graph import store as store_module
+    from app.graph.extraction import GraphExtractor
+    from app.graph.ingestion import GraphIngestionService, get_graph_ingestion
+    from app.graph.ontology import get_ontology
+    from app.graph.retrieval import GraphRetrievalService, get_graph_retrieval
+    from app.main import app
+    from tests.graph_fakes import FakeGraphLLM
+
+    llm = FakeGraphLLM()
+    ingestion = GraphIngestionService(
+        graph_store, GraphExtractor(llm, get_settings(), get_ontology()), get_settings()
+    )
+    retrieval = GraphRetrievalService(graph_store)
+    monkeypatch.setattr(store_module, "get_graph_store", lambda: graph_store)
+    app.dependency_overrides[get_graph_ingestion] = lambda: ingestion
+    app.dependency_overrides[get_graph_retrieval] = lambda: retrieval
+    yield SimpleNamespace(store=graph_store, llm=llm, ingestion=ingestion, retrieval=retrieval)
+    app.dependency_overrides.pop(get_graph_ingestion, None)
+    app.dependency_overrides.pop(get_graph_retrieval, None)

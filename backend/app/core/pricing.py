@@ -99,13 +99,13 @@ def price_call(
 ) -> tuple[float, dict | None]:
     """Cost of one model call, and the rate snapshot to store with it.
 
-    Layout and vision calls each send one image; the extract call sends none.
+    Layout and vision calls each send one image; extract and graph calls send none.
     An unpriced model costs $0 and returns no snapshot, so it stands out.
     """
     found = get_price_list().rate_for(provider, model, at)
     if found is None:
         return 0.0, None
     rate, effective_from = found
-    images = 0 if role == "extract" else 1
+    images = 1 if role in ("layout", "vision") else 0
     snapshot = {**rate.model_dump(), "effective_from": effective_from.isoformat()}
     return rate.cost(prompt_tokens, completion_tokens, images), snapshot

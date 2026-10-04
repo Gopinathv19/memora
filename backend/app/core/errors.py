@@ -28,6 +28,14 @@ class ConflictError(MemoraError):
     code = "conflict"
 
 
+class ServiceUnavailableError(MemoraError):
+    """An optional backing service (e.g. the graph database) is not configured
+    or not reachable."""
+
+    status_code = 503
+    code = "service_unavailable"
+
+
 class ValidationError(MemoraError):
     status_code = 422
     code = "validation_error"

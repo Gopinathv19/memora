@@ -11,14 +11,27 @@ import type {
   Actor,
   Application,
   AuthResponse,
+  ChunkEmbeddingDebug,
   Credential,
   CredentialCreated,
   DashboardMetrics,
   DashboardStats,
+  EmbeddingEnqueueResponse,
+  EmbeddingModel,
+  EmbeddingStats,
+  EmbeddingStrategy,
   Extraction,
   ExtractionMode,
   ExtractionSummary,
+  GraphBuild,
+  GraphBuildSummary,
+  GraphResult,
+  QueryResponse,
+  RechunkResponse,
+  RetryFailedResponse,
+  RetrievalChunk,
   Source,
+  SourceEmbeddingStatus,
   Subject,
   Tenant,
   UsageReport,
@@ -29,7 +42,7 @@ const BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
 
-  const PUBLIC_PATHS = ["/auth/login","/auth/signup","/auth/google"]
+  const PUBLIC_PATHS = ["/auth/google"]
 
 export class ApiError extends Error {
   constructor(
@@ -337,9 +350,41 @@ export const api = {
     /** Start the next version: a first run, a retry, or a re-extract. */
     start: (
       sourceId: string,
-      body: { mode?: ExtractionMode; instructions?: string | null } = {},
+      body: {
+        mode?: ExtractionMode;
+        instructions?: string | null;
+        /** Build the knowledge graph from this version once it succeeds. */
+        build_graph?: boolean;
+      } = {},
     ) =>
       request<Extraction>(`/sources/${sourceId}/extractions`, {
+        method: "POST",
+        body: json(body),
+      }),
+  },
+
+  graph: {
+    /** Every graph build of a source, newest first, without model calls. */
+    builds: (sourceId: string) =>
+      request<GraphBuildSummary[]>(`/sources/${sourceId}/graph/builds`),
+    latest: (sourceId: string) =>
+      request<GraphBuild>(`/sources/${sourceId}/graph/builds/latest`),
+    /** Build from the latest extraction, or re-read only the failed chunks. */
+    build: (sourceId: string, body: { retry_failed?: boolean } = {}) =>
+      request<GraphBuildSummary>(`/sources/${sourceId}/graph`, {
+        method: "POST",
+        body: json(body),
+      }),
+    /** A subject's graph (and, by default, its folders'), for plotting. */
+    view: (subjectId: string, includeSubfolders = true) =>
+      request<GraphResult>(`/subjects/${subjectId}/graph`, {
+        query: { include_subfolders: includeSubfolders ? "true" : "false" },
+      }),
+    query: (
+      subjectId: string,
+      body: { query: string; max_hops?: number; include_subfolders?: boolean },
+    ) =>
+      request<GraphResult>(`/subjects/${subjectId}/graph/query`, {
         method: "POST",
         body: json(body),
       }),
@@ -352,12 +397,93 @@ export const api = {
       }),
   },
 
+  chunks: {
+    /** All retrieval chunks of a source (active version only by default). */
+    list: (sourceId: string, activeOnly = true) =>
+      request<RetrievalChunk[]>(`/sources/${sourceId}/chunks`, {
+        query: { active_only: activeOnly ? "true" : "false" },
+      }),
+    /** Regenerate chunks from the stored readings — no model calls. */
+    rechunk: (sourceId: string) =>
+      request<RechunkResponse>(`/sources/${sourceId}/rechunk`, {
+        method: "POST",
+      }),
+  },
+
+  embeddings: {
+    /** Registered embedding models (global catalog data). */
+    models: () => request<EmbeddingModel[]>("/embedding/models"),
+    strategies: {
+      list: () => request<EmbeddingStrategy[]>("/embedding/strategies"),
+      get: (id: string) => request<EmbeddingStrategy>(`/embedding/strategies/${id}`),
+      create: (
+        body: {
+          name: string;
+          description?: string | null;
+          model_id: string;
+          document_template?: string;
+          query_template?: string;
+        },
+      ) =>
+        request<EmbeddingStrategy>("/embedding/strategies", {
+          method: "POST",
+          body: json(body),
+        }),
+      /** Mutable fields only: description, is_active. */
+      update: (id: string, body: { description?: string; is_active?: boolean }) =>
+        request<EmbeddingStrategy>(`/embedding/strategies/${id}`, {
+          method: "PATCH",
+          body: json(body),
+        }),
+      /** Force re-embed everything in scope under this strategy. */
+      rebuild: (id: string) =>
+        request<EmbeddingEnqueueResponse>(`/embedding/strategies/${id}/rebuild`, {
+          method: "POST",
+        }),
+    },
+    /** Embed a source's active chunks. Idempotent unless force. */
+    embedSource: (sourceId: string, force = false) =>
+      request<EmbeddingEnqueueResponse>(`/embedding/sources/${sourceId}/embed`, {
+        method: "POST",
+        body: json({ force }),
+      }),
+    /** Embed every active chunk under a subject (all its sources). */
+    embedSubject: (subjectId: string, force = false) =>
+      request<EmbeddingEnqueueResponse>(`/embedding/subjects/${subjectId}/embed`, {
+        method: "POST",
+        body: json({ force }),
+      }),
+    /** Reset failed embeddings to pending and drain them. */
+    retryFailed: (strategyId?: string) =>
+      request<RetryFailedResponse>("/embedding/retry-failed", {
+        method: "POST",
+        body: json(strategyId ? { strategy_id: strategyId } : {}),
+      }),
+    /** Scope-wide embedding health: counts + coverage. */
+    stats: () => request<EmbeddingStats>("/embedding/stats"),
+    /** Per-source embedding health, for the source detail page. */
+    sourceStatus: (sourceId: string) =>
+      request<SourceEmbeddingStatus>(`/embedding/sources/${sourceId}/status`),
+    /** Every embedding row for one chunk: status, hash, vector head. */
+    chunkDebug: (chunkId: string) =>
+      request<ChunkEmbeddingDebug[]>(`/embedding/chunks/${chunkId}/embeddings`),
+  },
+
+  retrieval: {
+    /** Ask Memora a question; get a grounded answer + supporting chunks. */
+    ask: (query: string, scope?: { subjectId?: string; sourceId?: string }) =>
+      request<QueryResponse>("/query", {
+        method: "POST",
+        body: json({
+          query,
+          subject_id: scope?.subjectId,
+          source_id: scope?.sourceId,
+        }),
+      }),
+  },
+
     auth: {
     me: () => request<User>("/auth/me"),
-    signup: (body: { email: string; password: string; name?: string }) =>
-      request<AuthResponse>("/auth/signup", { method: "POST", body: json(body) }),
-    login: (body: { email: string; password: string }) =>
-      request<AuthResponse>("/auth/login", { method: "POST", body: json(body) }),
     google: (idToken: string) =>
       request<AuthResponse>("/auth/google", {
         method: "POST",

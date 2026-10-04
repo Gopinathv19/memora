@@ -1,10 +1,9 @@
 """Console user accounts: lookup, creation, and provider linking.
 
-An account is two rows. `Users` is the person -- one per email address. Every
-way of proving you are that person is a separate `Authenticated_User` row: one
-for a password, one per external provider. That split is what lets somebody sign
-up with a password and later attach Google to the same account without ending up
-with two identities.
+Google sign-in is the only way into the console. An account is two rows:
+`Users` is the person -- one per email address -- and `Authenticated_User` is
+the Google identity that proves it. Accounts created earlier with a password
+keep their tenants: the first Google sign-in with the same email links to them.
 
 Nothing here imports FastAPI, so the same functions work from a worker, a CLI or
 a test. Failures are raised as domain errors and translated to HTTP once, by the
@@ -20,12 +19,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.errors import AuthenticationError, ConflictError, ValidationError
-from app.core.security import hash_password, verify_password
+from app.core.errors import AuthenticationError, ValidationError
 from app.db.models import Authenticated_User, Tenant, Users
 from app.schemas.enums import ResourceStatus
 
-PROVIDER_PASSWORD = "password"
 PROVIDER_GOOGLE = "google"
 
 GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
@@ -111,25 +108,6 @@ def create_user(
     return user
 
 
-def link_password_account(
-    db: Session, *, user: Users, password: str
-) -> Authenticated_User:
-    existing = find_auth_account(db, provider=PROVIDER_PASSWORD, user_id=user.id)
-    if existing is not None:
-        raise ConflictError("Password login already exists for this email")
-
-    account = Authenticated_User(
-        user_id=user.id,
-        provider=PROVIDER_PASSWORD,
-        provider_user_id=None,
-        password_hash=hash_password(password),
-        status=ResourceStatus.ACTIVE.value,
-    )
-    db.add(account)
-    db.flush()
-    return account
-
-
 def link_google_account(
     db: Session, *, user: Users, identity: GoogleIdentity
 ) -> Authenticated_User:
@@ -159,44 +137,6 @@ def assert_user_active(user: Users) -> None:
         raise AuthenticationError("This account is not active")
 
 
-def signup_with_password(
-    db: Session, *, email: str, password: str, name: str = ""
-) -> Users:
-    """Create the account, or attach a password to an existing Google-only one."""
-    email = normalize_email(email)
-    user = find_user_by_email(db, email)
-    if user is None:
-        user = create_user(db, email=email, email_verified=False, name=name.strip())
-
-    link_password_account(db, user=user, password=password)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-def login_with_password(db: Session, *, email: str, password: str) -> Users:
-    """Every failure returns the same message.
-
-    Distinguishing "no such user" from "wrong password" turns the login form
-    into a way to discover which addresses have accounts.
-    """
-    generic = "Invalid email or password"
-    email = normalize_email(email)
-
-    user = find_user_by_email(db, email)
-    if user is None:
-        raise AuthenticationError(generic)
-
-    account = find_auth_account(db, provider=PROVIDER_PASSWORD, user_id=user.id)
-    if account is None or not account.password_hash:
-        raise AuthenticationError(generic)
-    if not verify_password(password, account.password_hash):
-        raise AuthenticationError(generic)
-
-    assert_user_active(user)
-    return user
-
-
 def login_with_google(db: Session, *, id_token: str) -> Users:
     """Sign in with Google, creating or linking the account as needed."""
     identity = verify_google_id_token(id_token)
@@ -212,8 +152,8 @@ def login_with_google(db: Session, *, id_token: str) -> Users:
         return user
 
     # First Google sign-in. Attach to the account that already owns this email if
-    # there is one, so a password user who switches to Google keeps their tenants
-    # instead of colliding with the unique constraint on Users.email.
+    # there is one (created before password login was removed), so that person
+    # keeps their tenants instead of colliding with the unique Users.email.
     user = find_user_by_email(db, identity.email)
     if user is None:
         user = create_user(
@@ -246,9 +186,14 @@ def verify_google_id_token(id_token: str) -> GoogleIdentity:
 
     No client secret is involved: the token is already signed by Google, so this
     only verifies the signature and the audience. The audience check is what
-    stops a token minted for some other Google app being replayed here.
+    stops a token minted for some other Google app being replayed here, so it
+    is mandatory: without a client id there is no way to sign in at all.
     """
     settings = get_settings()
+    if not settings.google_client_id:
+        raise AuthenticationError(
+            "Google sign-in is not configured: set GOOGLE_CLIENT_ID in backend/.env"
+        )
 
     try:
         with httpx.Client(timeout=10.0) as client:
@@ -262,7 +207,7 @@ def verify_google_id_token(id_token: str) -> GoogleIdentity:
     data = response.json()
 
     audience = str(data.get("aud", ""))
-    if settings.google_client_id and audience != settings.google_client_id:
+    if audience != settings.google_client_id:
         raise AuthenticationError("Google token audience does not match this app")
 
     provider_user_id = str(data.get("sub", ""))

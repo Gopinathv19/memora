@@ -8,6 +8,8 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { ExtractionPanel } from "@/components/ExtractionPanel";
+import { EmbeddingPanel } from "@/components/EmbeddingPanel";
+import { GraphPanel } from "@/components/GraphPanel";
 import {
   Button,
   ErrorState,
@@ -45,9 +47,9 @@ export default function SourceDetailPage() {
   }
 
   const data = source.data;
-  // Only content Memora stored itself can be streamed back; an s3:// or
-  // https:// URI registered as metadata is not ours to serve.
-  const hasStoredContent = !!data.storage_uri?.startsWith("file://");
+  // Only content Memora stored itself can be streamed back; a URI registered
+  // as metadata is not ours to serve.
+  const hasStoredContent = data.has_stored_content;
 
   return (
     <>
@@ -173,7 +175,15 @@ export default function SourceDetailPage() {
         </Panel>
       </div>
 
-      <ExtractionPanel source={data} onStatusChange={source.reload} />
+      <div className="mb-5">
+        <ExtractionPanel source={data} onStatusChange={source.reload} />
+      </div>
+
+      <EmbeddingPanel source={data} onStatusChange={source.reload} />
+
+      <div className="mt-5">
+        <GraphPanel source={data} />
+      </div>
     </>
   );
 }

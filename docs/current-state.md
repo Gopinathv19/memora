@@ -2,10 +2,19 @@
 
 A snapshot of what exists in this repository as of **2026-09-23** (`main` @ `3dc302e`).
 
+> **Update 2026-09-25:** the knowledge graph (FalkorDB) has been built below
+> extraction — see [graph-rag.md](graph-rag.md).
+>
 > **Update 2026-09-24:** the Extraction Agent has since been built on top of
 > this — see [extraction-agent.md](extraction-agent.md). Sections below describe
 > the foundation it sits on; where they say "no LLM / nothing advances a source",
 > that is now superseded by the extraction stage.
+>
+> **Update 2026-09-25:** the Chunking stage has been built on top of the
+> Extraction Agent — see [chunking.md](chunking.md). The extraction's per-page
+> readings are now persisted, and a pure chunking pipeline turns them into
+> document units, semantic blocks and retrieval chunks. Embeddings, vector
+> indexes and retrieval are the next phase.
 
 It describes only what is implemented. For the reasoning behind the design see
 [decisions.md](decisions.md); for setup and running see the [README](../README.md).
@@ -45,7 +54,7 @@ embeds or answers questions yet.
  │  AUTH LAYER   api/deps.py → get_scope()                                           │
  │   ├─ "memora_…" token → credential_service.authenticate_token (HMAC-SHA256)       │
  │   │                      → Scope(kind="credential", one tenant + one application) │
- │   └─ session cookie   → auth_services (bcrypt / Google tokeninfo)                 │
+ │   └─ session cookie   → auth_services (Google tokeninfo)                          │
  │                          → Scope(kind="user", every tenant the user owns)         │
  │   Rows outside the scope → 404                                                    │
  │                                                                                   │
@@ -84,7 +93,7 @@ embeds or answers questions yet.
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic v2, pydantic-settings |
-| Auth libraries | PyJWT (HS256), bcrypt, httpx (Google tokeninfo) |
+| Auth libraries | PyJWT (HS256), httpx (Google tokeninfo) |
 | Database | PostgreSQL (Neon in practice, or local `postgres:16-alpine`) |
 | File storage | Local filesystem behind a `StorageBackend` protocol |
 | Console | Next.js 16 App Router, React 19, Tailwind 4, TypeScript |
@@ -114,7 +123,7 @@ Every table uses a UUID primary key (`gen_random_uuid()`) and `created_at`
 | Table | Key columns | Notes |
 |---|---|---|
 | `users` | `email` (unique), `email_verified`, `name`, `avatar_url` | A console user |
-| `authenticated_user` | `user_id`, `provider`, `provider_user_id`, `password_hash` | One row per login method (password or Google) |
+| `authenticated_user` | `user_id`, `provider`, `provider_user_id`, `password_hash` | The Google identity behind a user. `password_hash` is legacy, from the removed password login |
 | `tenants` | `name`, `user_owner_id` → `users.id`, `status` | The top of the ownership chain |
 | `applications` | `tenant_id`, `name`, `slug`, `status` | A client app inside a tenant |
 | `api_credentials` | `application_id`, `name`, `token_hash`, `token_preview`, `last_used_at`, `expires_at`, `status` | Only the HMAC hash of the token is stored |
@@ -149,7 +158,7 @@ which one a request uses.
 | Caller | How it authenticates | Resulting scope |
 |---|---|---|
 | **API credential** (client application) | `Authorization: Bearer memora_<32 random bytes>` | `Scope(kind="credential")`: exactly one tenant and one application |
-| **Console user** | `memora_session` HttpOnly cookie holding an HS256 JWT, valid 7 days. Obtained through `/auth/signup`, `/auth/login` (bcrypt) or `/auth/google` (tokeninfo). | `Scope(kind="user")`: every tenant where `tenants.user_owner_id = user.id` |
+| **Console user** | `memora_session` HttpOnly cookie holding an HS256 JWT, valid 7 days. Obtained only through `/auth/google` (tokeninfo); email/password login was removed. | `Scope(kind="user")`: every tenant where `tenants.user_owner_id = user.id` |
 
 **Rules**
 - A row outside the caller's scope returns **404, never 403**, so its existence isn't revealed.
@@ -162,7 +171,7 @@ which one a request uses.
 
 | Area | Routes |
 |---|---|
-| Auth | `POST /auth/signup`, `POST /auth/login`, `POST /auth/google`, `GET /auth/me`, `POST /auth/logout` |
+| Auth | `POST /auth/google`, `GET /auth/me`, `POST /auth/logout` |
 | Dashboard | `GET /stats`, `GET /stats/metrics`, `GET /whoami` |
 | Tenants | `POST /tenants`, `GET /tenants`, `GET/PATCH /tenants/{id}` |
 | Applications | `POST/GET /tenants/{id}/applications`, `GET /applications`, `GET/PATCH /applications/{id}` |
@@ -170,6 +179,7 @@ which one a request uses.
 | Actors | `POST/GET /applications/{id}/actors`, `GET /actors`, `GET/PATCH /actors/{id}` |
 | Subjects | `POST/GET /applications/{id}/subjects`, `GET /subjects`, `GET/PATCH/DELETE /subjects/{id}` |
 | Sources | `POST /subjects/{id}/sources` (metadata only), `POST /subjects/{id}/sources/upload`, `GET /subjects/{id}/sources[/{sid}]`, `GET /sources`, `GET/PATCH/DELETE /sources/{id}`, `GET /sources/{id}/content`, `POST /sources/{id}/move` |
+| Chunking | `POST /sources/{id}/rechunk`, `GET /sources/{id}/chunks` |
 | Health | `GET /health` |
 
 There is no chat, ask, query or search endpoint.
@@ -261,7 +271,7 @@ memora/
 | 2026-09-23 | `3dc302e` | PR #1 (`initiall-rollout`) merged into `main` |
 
 ### Feature summary
-- **Accounts and auth:** email/password and Google sign-in for console users, with a session cookie. Scoped API credentials for client apps. Credentials can be revoked and expire.
+- **Accounts and auth:** Google sign-in (only) for console users, with a session cookie. Scoped API credentials for client apps. Credentials can be revoked and expire.
 - **Ownership chain:** CRUD for tenants, applications, credentials, actors, subjects and sources, with every query scoped to what the caller owns.
 - **Workspaces as a folder tree:** nested subjects, with rename, move (cycle-safe) and delete (subtree plus bytes).
 - **File registration:** upload (up to 50 MiB, any type), metadata-only registration, file move between folders, content streaming, delete.
@@ -283,12 +293,14 @@ memora/
 ## 9. Not built yet and known gaps
 
 **Built since:** the Extraction Agent — see
-[extraction-agent.md](extraction-agent.md).
+[extraction-agent.md](extraction-agent.md) — the knowledge graph — see
+[graph-rag.md](graph-rag.md) — and the Chunking stage — see
+[chunking.md](chunking.md); embeddings and retrieval are traced in
+[data-flow.md](data-flow.md).
 
 **Not built (by design, next phase):**
-- **Ingestion:** no parsing or OCR of uploaded files, and no LLM extraction.
-- **Retrieval:** no Document or Chunk tables, no chunking, no embeddings, no pgvector or other vector store, no graph database.
-- **Answering:** no chat, ask or search endpoint, and no LLM calls of any kind.
+- **Retrieval:** no embeddings, no pgvector or other vector store, no lexical search, no hybrid retrieval, no search/ask endpoint.
+- **Answering:** no chat, ask or search endpoint, and no Memory Agent.
 - **Infrastructure:** no background workers or queues, no Redis, no S3/MinIO backend, no Docker Compose.
 - **Permissions:** no per-subject permissions for actors. The `subject_actors` table is designed but not built.
 

@@ -46,6 +46,9 @@ class LocalStorageBackend(StorageBackend):
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def owns(self, storage_uri: str) -> bool:
+        return storage_uri.startswith(self.scheme)
+
     def _resolve(self, storage_uri: str) -> Path:
         if not storage_uri.startswith(self.scheme):
             raise ValidationError(
@@ -89,4 +92,10 @@ class LocalStorageBackend(StorageBackend):
 
 @lru_cache
 def get_storage() -> StorageBackend:
-    return LocalStorageBackend(Path(get_settings().storage_dir))
+    """Local disk in the local environment, Cloudflare R2 in production."""
+    settings = get_settings()
+    if settings.environment == "production":
+        from app.storage.s3 import S3StorageBackend
+
+        return S3StorageBackend(settings)
+    return LocalStorageBackend(Path(settings.storage_dir))

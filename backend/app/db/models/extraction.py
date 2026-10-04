@@ -19,6 +19,11 @@ from app.db.database import Base
 from app.db.models.mixins import TimestampCreated, UUIDPrimaryKey
 
 if TYPE_CHECKING:
+    from app.db.models.chunking import (
+        DocumentUnit,
+        RetrievalChunk,
+        SemanticBlock,
+    )
     from app.db.models.source import Source
 
 
@@ -99,6 +104,14 @@ class SourceExtraction(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     models: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     # An ExtractionResult (app/schemas/extraction.py), once the run finishes.
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The whole document as the agent read it: every unit's Markdown in reading
+    # order, each behind a `<!-- page 3 · hard · layout -->` marker, before any
+    # truncation. The input to both the knowledge graph and the vector pipeline.
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The per-unit document representation: one entry per ReadingUnit with its
+    # transcribed text, route, model and status. The source material chunking
+    # derives from, preserved so chunks can be regenerated without re-extracting.
+    readings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -112,11 +125,32 @@ class SourceExtraction(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     )
 
     source: Mapped["Source"] = relationship(back_populates="extractions")
+    # Only this run's own calls. Graph builds that read this version record
+    # their calls against it too (with `graph_build_id` set); they are reported
+    # on the build, not here. Rows are removed by the database's cascade.
     usage: Mapped[list["ExtractionUsage"]] = relationship(
+        primaryjoin="and_(SourceExtraction.id == ExtractionUsage.extraction_id, "
+        "ExtractionUsage.graph_build_id.is_(None))",
+        viewonly=True,
+        order_by="ExtractionUsage.created_at",
+    )
+    document_units: Mapped[list["DocumentUnit"]] = relationship(
         back_populates="extraction",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        order_by="ExtractionUsage.created_at",
+        order_by="DocumentUnit.position",
+    )
+    semantic_blocks: Mapped[list["SemanticBlock"]] = relationship(
+        back_populates="extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="SemanticBlock.position",
+    )
+    retrieval_chunks: Mapped[list["RetrievalChunk"]] = relationship(
+        back_populates="extraction",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RetrievalChunk.chunk_index",
     )
 
 
@@ -132,12 +166,20 @@ class ExtractionUsage(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
         Index("ix_extraction_usage_extraction_id", "extraction_id"),
         Index("ix_extraction_usage_tenant_created", "tenant_id", "created_at"),
         Index("ix_extraction_usage_application_id", "application_id"),
+        Index("ix_extraction_usage_graph_build_id", "graph_build_id"),
     )
 
     extraction_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("source_extractions.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # Set when the call belonged to a knowledge-graph build that read the
+    # extraction above; NULL for the extraction run's own calls.
+    graph_build_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("source_graph_builds.id", ondelete="CASCADE"),
+        nullable=True,
     )
     source_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -158,7 +200,8 @@ class ExtractionUsage(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     provider: Mapped[str] = mapped_column(String(32), nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
-    # The page / slide / sheet the call was for; NULL for the final extract call.
+    # The page / slide / sheet the call was for (for a graph call, the first
+    # page of its chunk); NULL for the final extract call.
     page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     completion_tokens: Mapped[int] = mapped_column(
@@ -172,4 +215,4 @@ class ExtractionUsage(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    extraction: Mapped["SourceExtraction"] = relationship(back_populates="usage")
+    extraction: Mapped["SourceExtraction"] = relationship()

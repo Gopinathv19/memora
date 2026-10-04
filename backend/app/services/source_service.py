@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, aliased
 
 from app.core.errors import NotFoundError, ValidationError
 from app.db.models import Actor, Application, Source, Subject, Tenant
+from app.graph import sync as graph_sync
 from app.schemas.enums import SourceStatus, SourceType
 from app.schemas.source import SourceCreate, SourceDetail, SourceUpdate
 from app.services.scope import Scope
@@ -254,9 +255,12 @@ def move_source(
         raise ValidationError(
             "target_subject_id does not reference a subject in this application"
         )
+    moved = source.subject_id != target.id
     source.subject_id = target.id
     db.commit()
     db.refresh(source)
+    if moved:
+        graph_sync.move_sources(source.tenant_id, [source.id], target.id)
     return source
 
 
@@ -265,13 +269,15 @@ def delete_source(
 ) -> None:
     """Delete a source row and any bytes Memora itself stored for it."""
     source = get_source(db, source_id, scope)
-    storage_uri = source.storage_uri
+    storage_uri, tenant_id = source.storage_uri, source.tenant_id
     db.delete(source)
     db.commit()
     if storage_uri:
         # After the commit: a failed delete should leave a stray object, not a
         # row pointing at bytes that are already gone.
         storage.delete(storage_uri)
+    # Same rule for its knowledge-graph facts, which Postgres cannot cascade to.
+    graph_sync.forget_sources(tenant_id, [source_id])
 
 
 def dashboard_counts(db: Session, scope: Scope) -> dict:

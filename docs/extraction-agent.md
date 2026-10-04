@@ -55,13 +55,21 @@ means NVIDIA open models only, running on Nebius Token Factory. Nebius
 credits are limited (about $25), so development and testing use
 build.nvidia.com.
 
-| `LLM_PROVIDER` | Endpoint (OpenAI-compatible) | Key | Used for |
+| `ENVIRONMENT` | Text models (extract, graph, answer) | Layout, vision, embeddings, reranker | File storage |
 |---|---|---|---|
-| `build-nvidia` (default) | `https://integrate.api.nvidia.com/v1` | `NVIDIA_API_KEY` | Development and testing (free) |
-| `nebius` | `https://api.tokenfactory.nebius.com/v1/` | `NEBIUS_API_KEY` | Demo and submission |
+| `local` (default) | build.nvidia.com (`NVIDIA_API_KEY`) | build.nvidia.com | Local disk (`STORAGE_DIR`) |
+| `production` | Nebius (`NEBIUS_API_KEY`) | build.nvidia.com | Cloudflare R2 (`R2_*`) |
 
-- Both endpoints speak the OpenAI API, so there is **one client**: the `openai`
-  SDK with a configurable `base_url`. Switching provider changes only `.env`.
+Nebius serves only text NVIDIA models (checked against its `GET /v1/models`
+in October 2026: `nemotron-3-super-120b-a12b`, `NVIDIA-Nemotron-3-Nano-30B-A3B`,
+`Nemotron-3-Ultra-550b-a55b`, `Nemotron-3_5-Lightning`). It has no NVIDIA
+vision, parse, embedding or rerank model, so those stay on build.nvidia.com in
+production rather than switch to a non-NVIDIA model. Each call's cost is
+recorded under the provider that actually served it.
+
+- Both endpoints speak the OpenAI API, so there is **one client** class: the
+  `openai` SDK, with one instance per provider. Switching environment changes
+  only `.env`.
 - **NVIDIA-only guard:** every configured model id must start with `nvidia/`.
   Settings validation fails at startup otherwise.
 - Only `app/llm/` imports the SDK. The rest of Memora depends on the
@@ -437,6 +445,6 @@ The repository is Apache 2.0, and the hackathon requires an open-source license.
    v1 is unchanged, and v2 records its mode and instructions.
 5. **Console:** upload → Extract → watch the status → view the result →
    Re-extract → switch versions.
-6. **Nebius check:** switch to `LLM_PROVIDER=nebius`, check the model ids via
+6. **Nebius check:** switch to `ENVIRONMENT=production`, check the model ids via
    `GET /v1/models`, then run **one** document to confirm the models work and
    the cost is recorded.

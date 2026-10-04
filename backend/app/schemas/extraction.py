@@ -77,6 +77,11 @@ class ExtractionRequest(BaseModel):
         description="The consuming application's end user this run is for. "
         "Recorded for cost attribution; it grants nothing.",
     )
+    build_graph: bool = Field(
+        default=False,
+        description="When the run succeeds, build the source's knowledge graph "
+        "from it straight away (same as POST /sources/{id}/graph afterwards).",
+    )
 
     @field_validator("instructions")
     @classmethod

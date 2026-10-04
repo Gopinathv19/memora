@@ -32,6 +32,8 @@ from app.core.errors import AuthenticationError
 from app.core.security import is_api_token, session_user_id
 from app.db.database import get_db
 from app.db.models.users import Users
+from app.graph.ingestion import GraphIngestionService, get_graph_ingestion
+from app.graph.retrieval import GraphRetrievalService, get_graph_retrieval
 from app.services.auth_services import get_user, owned_tenant_ids
 from app.services.credential_service import AuthContext, authenticate_token
 from app.services.scope import Scope
@@ -125,3 +127,6 @@ CurrentUser = Annotated[Users, Depends(get_current_user)]
 CurrentAuth = Annotated[AuthContext, Depends(get_auth_context)]
 Storage = Annotated[StorageBackend, Depends(get_storage)]
 ExtractionAgentDep = Annotated[ExtractionAgent, Depends(get_extraction_agent)]
+# None when FalkorDB is not configured; the graph services answer 503 then.
+GraphIngestionDep = Annotated[GraphIngestionService | None, Depends(get_graph_ingestion)]
+GraphRetrievalDep = Annotated[GraphRetrievalService | None, Depends(get_graph_retrieval)]

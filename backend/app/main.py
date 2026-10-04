@@ -1,4 +1,5 @@
 import logging
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -9,9 +10,13 @@ from app.api.routes import (
     auth,
     actors,
     applications,
+    chunks,
     credentials,
     dashboard,
+    embeddings,
     extractions,
+    graph,
+    retrieval,
     sources,
     subjects,
     tenants,
@@ -31,6 +36,10 @@ async def lifespan(_: FastAPI):
     from app.core.pricing import get_price_list
 
     get_price_list()
+    # Same for the ontology: its relation names are written into Cypher.
+    from app.graph.ontology import get_ontology
+
+    get_ontology()
 
     # Extraction runs are background tasks in this process; any still marked
     # `processing` at startup were cut off by a restart and will never finish.
@@ -46,6 +55,49 @@ async def lifespan(_: FastAPI):
             )
     except Exception:
         logging.getLogger(__name__).exception("could not check for interrupted runs")
+
+    # Graph builds too; then, off the startup path, remove graph data for any
+    # source whose post-delete cleanup did not reach FalkorDB.
+    from app.services.graph_service import fail_interrupted_builds, sweep_orphaned_documents
+
+    try:
+        with SessionLocal() as db:
+            interrupted = fail_interrupted_builds(db)
+        if interrupted:
+            logging.getLogger(__name__).warning(
+                "marked %d interrupted graph build(s) as failed", interrupted
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted graph builds")
+
+    def _sweep() -> None:
+        try:
+            with SessionLocal() as db:
+                removed = sweep_orphaned_documents(db)
+            if removed:
+                logging.getLogger(__name__).warning(
+                    "removed %d orphaned document(s) from the graph", removed
+                )
+        except Exception:
+            logging.getLogger(__name__).exception("graph orphan sweep failed")
+
+    if settings.falkordb_url:
+        threading.Thread(target=_sweep, name="graph-sweep", daemon=True).start()
+
+    # Same recovery for embeddings: rows still `processing` belonged to a
+    # worker that died mid-batch. Back to `pending`, so the next sweep
+    # re-claims them (attempt_count keeps the retry bound honest).
+    try:
+        from app.services.embedding_service import reset_interrupted
+
+        with SessionLocal() as db:
+            interrupted = reset_interrupted(db)
+        if interrupted:
+            logging.getLogger(__name__).warning(
+                "reset %d interrupted embedding(s) to pending", interrupted
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted embeddings")
     yield
 
 
@@ -56,9 +108,11 @@ app = FastAPI(
     description=(
         "Memora manages the ownership chain "
         "Tenant -> Application -> Actor -> Subject -> Source. "
-        "Sources are registered and tracked, and the Extraction Agent turns a "
-        "stored document into versioned, structured information. Chunks, "
-        "embeddings and the knowledge graph are later phases."
+        "Sources are registered and tracked, the Extraction Agent turns a "
+        "stored document into versioned, structured information, and the "
+        "knowledge graph (FalkorDB) links the entities and relationships of a "
+        "subject's sources, and the retrieval pipeline chunks and embeds them "
+        "(pgvector) to answer questions."
     ),
     docs_url="/docs",
 )
@@ -100,6 +154,11 @@ for router in (
     sources.subject_router,
     sources.router,
     extractions.router,
+    graph.source_router,
+    graph.subject_router,
+    chunks.router,
+    embeddings.router,
+    retrieval.router,
     usage.router,
 ):
     app.include_router(router, prefix=API_PREFIX)

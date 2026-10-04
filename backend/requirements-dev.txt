@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest==8.3.4
 httpx==0.28.1
+# Optional: an embedded FalkorDB, so graph tests run without TEST_FALKORDB_URL.
+#   pip install falkordblite

@@ -34,6 +34,7 @@ export function Button({
   disabled,
   onClick,
   className = "",
+  title,
 }: {
   children: ReactNode;
   variant?: ButtonVariant;
@@ -41,12 +42,14 @@ export function Button({
   disabled?: boolean;
   onClick?: () => void;
   className?: string;
+  title?: string;
 }) {
   return (
     <button
       type={type}
       disabled={disabled}
       onClick={onClick}
+      title={title}
       className={`${BUTTON_BASE} disabled:cursor-not-allowed disabled:opacity-45 ${BUTTON_STYLES[variant]} ${className}`}
     >
       {children}

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.schemas.common import ORMModel
 from app.schemas.enums import SourceStatus, SourceType
@@ -50,6 +50,16 @@ class SourceRead(ORMModel):
     size_bytes: int | None = None
     status: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def has_stored_content(self) -> bool:
+        """True when Memora stored the bytes itself, so it can extract and
+        serve them. Decided by the active storage backend, so clients never
+        have to guess from the URI scheme."""
+        from app.storage import get_storage
+
+        return bool(self.storage_uri) and get_storage().owns(self.storage_uri)
 
 
 class SourceDetail(SourceRead):
