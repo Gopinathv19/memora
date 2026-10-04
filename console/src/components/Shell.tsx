@@ -474,15 +474,19 @@ function UserMenu({ user }: { user: User }) {
           >
             API reference
           </a>
-          <a
-            href={`${API_BASE_URL}/docs`}
-            target="_blank"
-            rel="noreferrer"
-            role="menuitem"
-            className="block px-3 py-1.5 text-sm text-ink-secondary hover:bg-topbar-hover hover:text-ink"
-          >
-            OpenAPI schema
-          </a>
+          {/* Behind the /api/v1 proxy (empty base URL) the backend's own
+              /docs page is not reachable from the console's domain. */}
+          {API_BASE_URL && (
+            <a
+              href={`${API_BASE_URL}/docs`}
+              target="_blank"
+              rel="noreferrer"
+              role="menuitem"
+              className="block px-3 py-1.5 text-sm text-ink-secondary hover:bg-topbar-hover hover:text-ink"
+            >
+              OpenAPI schema
+            </a>
+          )}
           <button
             type="button"
             role="menuitem"

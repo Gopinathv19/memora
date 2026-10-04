@@ -38,6 +38,9 @@ import type {
   User,
 } from "./types";
 
+// The backend's address. Empty (or "/") means "this console's own domain": the console
+// then calls /api/v1/... on itself and next.config.ts forwards it to the
+// backend (API_PROXY_TARGET), which keeps the session cookie first-party.
 const BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/$/, "");
@@ -57,12 +60,15 @@ export class ApiError extends Error {
 
 type Query = Record<string, string | undefined | null>;
 
+// Built as a string rather than with `new URL()`, which throws on the relative
+// /api/v1/... path used when BASE_URL is empty.
 function buildUrl(path: string, query?: Query): string {
-  const url = new URL(`${BASE_URL}/api/v1${path}`);
+  const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
-    if (value) url.searchParams.set(key, value);
+    if (value) params.set(key, value);
   }
-  return url.toString();
+  const search = params.toString();
+  return `${BASE_URL}/api/v1${path}${search ? `?${search}` : ""}`;
 }
 
 async function request<T>(
