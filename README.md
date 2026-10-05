@@ -6,8 +6,8 @@ retrievable context.
 This repository currently contains the **console and registration foundation**:
 a Next.js operations console and a FastAPI backend over Neon PostgreSQL that
 model who owns what, and let a file be registered and stored against the right
-owner, plus the first processing stages: the Extraction Agent and the
-knowledge graph (see below). Embeddings and vector search are the next phase.
+owner, plus the processing stages: the Extraction Agent, the knowledge graph,
+and the embedding + retrieval pipeline (see below).
 
 ## The ownership chain
 
@@ -148,9 +148,17 @@ source inside a subject.
 | Applications | `POST/GET /tenants/{id}/applications`, `GET /applications`, `GET/PATCH /applications/{id}` |
 | Credentials | `POST/GET /applications/{id}/credentials`, `GET /credentials`, `PATCH/DELETE /credentials/{id}` |
 | Actors | `POST/GET /applications/{id}/actors`, `GET /actors`, `GET/PATCH /actors/{id}` |
-| Subjects | `POST/GET /applications/{id}/subjects`, `GET /subjects`, `GET/PATCH /subjects/{id}` |
+| Subjects | `POST/GET /applications/{id}/subjects`, `GET /subjects`, `GET/PATCH/DELETE /subjects/{id}` |
 | Sources | `POST/GET /subjects/{id}/sources`, `POST /subjects/{id}/sources/upload`, `GET /sources`, `GET/PATCH/DELETE /sources/{id}`, `GET /sources/{id}/content` |
-| Meta | `GET /stats`, `GET /whoami`, `GET /health` |
+| Extractions | `POST/GET /sources/{id}/extractions`, `GET /sources/{id}/extractions/{version}` |
+| Chunks | `POST /sources/{id}/rechunk`, `GET /sources/{id}/chunks` |
+| Embeddings | `GET /embedding/models`, `GET/POST /embedding/strategies`, `PATCH /embedding/strategies/{id}`, `POST /embedding/sources/{id}/embed`, `POST /embedding/subjects/{id}/embed`, `POST /embedding/strategies/{id}/rebuild`, `POST /embedding/retry-failed`, `GET /embedding/stats`, `POST /embedding/query` |
+| Graph | `POST /sources/{id}/graph`, `GET /sources/{id}/graph/builds/latest`, `GET /subjects/{id}/graph`, `POST /subjects/{id}/graph/query` |
+| Retrieval | `POST /query` |
+| Meta | `GET /stats`, `GET /stats/metrics`, `GET /whoami`, `GET /usage/extractions`, `GET /health` |
+
+The full reference, with request/response fields for every endpoint, is in
+[docs/api-reference.md](docs/api-reference.md).
 
 ### Registering a file
 
@@ -266,7 +274,27 @@ Setup: set `FALKORDB_URL` (FalkorDB Cloud: `falkors://user:pass@host:port`) in
 `backend/.env`, `pip install -r requirements.txt`, `alembic upgrade head`.
 Without `FALKORDB_URL` the graph endpoints answer 503 and nothing else changes.
 
-Embeddings and vector search are a later phase; none exist yet.
+## Embeddings & retrieval
+
+Below chunking sits the **vector pipeline**: each chunk's `embedding_text` is
+embedded into pgvector under a versioned, swappable **strategy** (model +
+templates + normalization + metric — multiple strategies can coexist for A/B
+evaluation), indexed with HNSW, and `POST /api/v1/query` answers questions
+through a four-stage pipeline: vector search (top 50) → MMR diversification
+(top 10) → cross-encoder reranking (top 5) → a grounded LLM answer with
+per-chunk evidence and scores.
+
+```
+retrieval_chunks → embedding strategy → pgvector (HNSW) → query → grounded answer
+```
+
+Design and concepts: [docs/embedding-retrieval.md](docs/embedding-retrieval.md).
+API reference: [docs/api-reference.md](docs/api-reference.md).
+
+Setup: set `NVIDIA_API_KEY` in `backend/.env` (the same key serves the
+embedding and reranking NIMs), run `alembic upgrade head`. The default
+strategy ("Memora Dense v1" over `nvidia/nemotron-3-embed-1b`) is seeded by
+the migration.
 
 ## Repository layout
 

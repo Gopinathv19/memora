@@ -2,7 +2,9 @@
 
 A walk through the database in the order rows are actually created. For the
 chunking design see [chunking.md](chunking.md); for the extraction stage see
-[extraction-agent.md](extraction-agent.md).
+[extraction-agent.md](extraction-agent.md); for the embedding and retrieval
+stages see [embedding-retrieval.md](embedding-retrieval.md); for the HTTP
+surface see [api-reference.md](api-reference.md).
 
 ---
 

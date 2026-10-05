@@ -15,6 +15,13 @@ A snapshot of what exists in this repository as of **2026-09-23** (`main` @ `3dc
 > readings are now persisted, and a pure chunking pipeline turns them into
 > document units, semantic blocks and retrieval chunks. Embeddings, vector
 > indexes and retrieval are the next phase.
+>
+> **Update 2026-10-05:** the embedding and retrieval pipeline has been built
+> on top of chunking — see [embedding-retrieval.md](embedding-retrieval.md).
+> Chunks are embedded into pgvector (HNSW) under versioned, swappable
+> strategies, and `POST /query` answers questions through the four-stage
+> pipeline (vector search → MMR → reranker → grounded answer). The full HTTP
+> surface is documented in [api-reference.md](api-reference.md).
 
 It describes only what is implemented. For the reasoning behind the design see
 [decisions.md](decisions.md); for setup and running see the [README](../README.md).

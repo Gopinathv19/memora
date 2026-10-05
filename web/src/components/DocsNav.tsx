@@ -36,6 +36,8 @@ const SECTIONS: { title: string; items: { href: string; label: string }[] }[] = 
     items: [
       { href: "/docs/extractions", label: "Extractions" },
       { href: "/docs/graph", label: "Knowledge graph" },
+      { href: "/docs/embeddings", label: "Embeddings" },
+      { href: "/docs/retrieval", label: "Retrieval" },
     ],
   },
   {
