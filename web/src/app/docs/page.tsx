@@ -55,7 +55,8 @@ export default function OverviewPage() {
           </li>
           <li>
             <strong className="font-medium text-ink">Source</strong> —
-            registered knowledge: an uploaded file, a URL, a conversation.
+            registered knowledge: an uploaded file, pasted text, a
+            conversation, a URL.
           </li>
         </Ul>
         <P>
@@ -100,7 +101,8 @@ export default function OverviewPage() {
           <Link href="/docs/quickstart" className="text-accent hover:underline">
             Quickstart
           </Link>{" "}
-          — it goes from an empty console to a registered source in six calls.
+          — it goes from an empty console to an answered question in seven
+          steps.
           If you already have a token, go straight to{" "}
           <Link href="/docs/subjects" className="text-accent hover:underline">
             Subjects
@@ -113,14 +115,56 @@ export default function OverviewPage() {
         </P>
       </Section>
 
-      <Section title="What Memora does not do yet">
+      <Section title="What happens to a source">
         <P>
-          Registering a source records it and stores its bytes. Extraction,
-          chunking, embeddings and retrieval are a later phase — a new source
-          stays <C>pending</C>, and nothing currently advances it. Build against
-          the ownership model now; the processing pipeline hangs below a source
-          without changing anything above it.
+          Below the chain, every source can move through a processing pipeline.
+          Each stage is its own endpoint and can be re-run on its own.
         </P>
+        <Ul>
+          <li>
+            <Link href="/docs/extractions" className="text-accent hover:underline">
+              Extraction
+            </Link>{" "}
+            reads the document page by page, sending only the hard pages to
+            layout and vision models. Each run is versioned and its cost is
+            recorded.
+          </li>
+          <li>
+            <Link href="/docs/chunks" className="text-accent hover:underline">
+              Chunking
+            </Link>{" "}
+            splits the extracted text into retrieval-sized chunks that keep
+            their section and page. It makes no model calls.
+          </li>
+          <li>
+            <Link href="/docs/embeddings" className="text-accent hover:underline">
+              Embedding
+            </Link>{" "}
+            turns each chunk into a vector behind an HNSW index, under a
+            versioned strategy.
+          </li>
+          <li>
+            <Link href="/docs/retrieval" className="text-accent hover:underline">
+              Retrieval
+            </Link>{" "}
+            — <C>POST /query</C> — answers a question from your chunks and
+            returns the evidence alongside the answer.
+          </li>
+          <li>
+            The{" "}
+            <Link href="/docs/graph" className="text-accent hover:underline">
+              knowledge graph
+            </Link>{" "}
+            maps entities and relationships across documents. Building it is
+            optional.
+          </li>
+        </Ul>
+        <Callout title="One call to start it all">
+          Upload with <C>extract=true</C> (and <C>build_graph=true</C> if you
+          want the graph) and extraction, chunking and embedding run in the
+          background. When the source is <C>completed</C> and its embedding
+          coverage reaches 100%, it can be queried.
+        </Callout>
       </Section>
     </>
   );

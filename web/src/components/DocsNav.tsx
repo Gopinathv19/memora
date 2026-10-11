@@ -9,7 +9,8 @@ import { usePathname } from "next/navigation";
  * Ordered by the ownership chain rather than alphabetically, because the chain
  * is the one thing a reader has to understand before any endpoint makes sense:
  * a tenant owns applications, an application knows its actors, an actor opens
- * subjects, and subjects hold sources.
+ * subjects, and subjects hold sources. Processing follows in pipeline order,
+ * from a source's extraction down to the question it answers.
  */
 
 const SECTIONS: { title: string; items: { href: string; label: string }[] }[] = [
@@ -35,6 +36,9 @@ const SECTIONS: { title: string; items: { href: string; label: string }[] }[] = 
     title: "Processing",
     items: [
       { href: "/docs/extractions", label: "Extractions" },
+      { href: "/docs/chunks", label: "Chunks" },
+      { href: "/docs/embeddings", label: "Embeddings" },
+      { href: "/docs/retrieval", label: "Retrieval" },
       { href: "/docs/graph", label: "Knowledge graph" },
     ],
   },
@@ -42,6 +46,7 @@ const SECTIONS: { title: string; items: { href: string; label: string }[] }[] = 
     title: "Reference",
     items: [
       { href: "/docs/credentials", label: "API credentials" },
+      { href: "/docs/usage", label: "Usage and stats" },
       { href: "/docs/errors", label: "Errors" },
     ],
   },

@@ -30,8 +30,20 @@ export default function SourcesPage() {
         <Link href="/docs/extractions" className="text-accent hover:underline">
           extraction
         </Link>{" "}
-        — with <C>extract=true</C> on the upload, or later. Chunking and
-        embeddings are a later phase.
+        — with <C>extract=true</C> on the upload, or later. Once extraction
+        succeeds the source is{" "}
+        <Link href="/docs/chunks" className="text-accent hover:underline">
+          chunked
+        </Link>{" "}
+        and{" "}
+        <Link href="/docs/embeddings" className="text-accent hover:underline">
+          embedded
+        </Link>{" "}
+        automatically, and then{" "}
+        <Link href="/docs/retrieval" className="text-accent hover:underline">
+          <C>POST /query</C>
+        </Link>{" "}
+        can answer from it.
       </Callout>
 
       <Section title="Upload a file">

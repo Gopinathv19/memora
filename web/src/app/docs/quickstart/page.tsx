@@ -10,7 +10,7 @@ export default function QuickstartPage() {
   return (
     <>
       <DocHeader eyebrow="Getting started" title="Quickstart">
-        From an empty account to a registered source. The first three steps
+        From an empty account to an answered question. The first three steps
         happen once, in the console; the rest is what your application does
         every day.
       </DocHeader>
@@ -173,11 +173,14 @@ const actor = await memora(\`/applications/\${application_id}/actors\`, {
         />
       </Section>
 
-      <Section title="6. Register a source">
+      <Section title="6. Upload a source">
         <P>
-          Either upload the bytes and let Memora store them, or register
-          something that already lives elsewhere by its URI. Both produce a
-          source in <C>pending</C>.
+          Upload the file with <C>extract=true</C>. Memora stores it and
+          returns at once with the source in <C>processing</C>. In the
+          background it extracts the text, chunks it and embeds the chunks.
+          To send text instead of a file, use{" "}
+          <C>POST /subjects/{"{subject_id}"}/sources/text</C>, which accepts
+          the same <C>extract</C> flag.
         </P>
         <CodeTabs
           sample={{
@@ -185,30 +188,83 @@ const actor = await memora(\`/applications/\${application_id}/actors\`, {
     source = client.post(
         f"/subjects/{subject['id']}/sources/upload",
         files={"file": ("employee-handbook.pdf", handle, "application/pdf")},
-        data={"created_by_actor_id": actor["id"]},
+        data={"created_by_actor_id": actor["id"], "extract": "true"},
     ).json()
 
-print(source["id"], source["status"])  # … pending`,
+print(source["id"], source["status"])  # … processing`,
             js: `const form = new FormData();
 form.append("file", file, "employee-handbook.pdf");
 form.append("created_by_actor_id", actor.id);
+form.append("extract", "true");
 
 const source = await memora(\`/subjects/\${subject.id}/sources/upload\`, {
   method: "POST",
   body: form, // no Content-Type: the browser sets the multipart boundary
 });
 
-console.log(source.id, source.status); // … pending`,
+console.log(source.id, source.status); // … processing`,
             curl: `curl -s -X POST \\
   ${API_BASE_URL}/api/v1/subjects/$SUBJECT_ID/sources/upload \\
   -H "Authorization: Bearer $MEMORA_TOKEN" \\
   -F "file=@employee-handbook.pdf;type=application/pdf" \\
-  -F "created_by_actor_id=$ACTOR_ID"`,
+  -F "created_by_actor_id=$ACTOR_ID" \\
+  -F "extract=true"`,
+          }}
+        />
+      </Section>
+
+      <Section title="7. Ask a question">
+        <P>
+          Once the embedding coverage reaches 100%, the source can answer
+          questions. Coverage is reported by{" "}
+          <C>GET /embedding/sources/{"{source_id}"}/status</C>. Narrow the
+          query to the subject so that only this workspace&apos;s sources are
+          searched.
+        </P>
+        <CodeTabs
+          sample={{
+            python: `import time
+
+while client.get(f"/embedding/sources/{source['id']}/status").json()["coverage_percent"] < 100:
+    time.sleep(3)
+
+result = client.post(
+    "/query",
+    json={"query": "How many days of annual leave do employees get?",
+          "subject_id": subject["id"]},
+).json()
+
+print(result["answer"])
+for chunk in result["chunks"]:
+    print(" -", chunk["source_filename"], "p.", chunk["page_start"])`,
+            js: `let status;
+do {
+  await new Promise((r) => setTimeout(r, 3000));
+  status = await memora(\`/embedding/sources/\${source.id}/status\`);
+} while (status.coverage_percent < 100);
+
+const result = await memora("/query", {
+  method: "POST",
+  body: JSON.stringify({
+    query: "How many days of annual leave do employees get?",
+    subject_id: subject.id,
+  }),
+});
+
+console.log(result.answer);`,
+            curl: `curl -s -X POST ${API_BASE_URL}/api/v1/query \\
+  -H "Authorization: Bearer $MEMORA_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"query":"How many days of annual leave do employees get?","subject_id":"'$SUBJECT_ID'"}'`,
           }}
         />
         <P>
-          That is the whole loop. Everything after this is the same six verbs
-          applied to more rows — see{" "}
+          That is the whole loop. The answer comes back with the chunks it was
+          written from, including file name, section and page. See{" "}
+          <Link href="/docs/retrieval" className="text-accent hover:underline">
+            Retrieval
+          </Link>{" "}
+          for the options, and{" "}
           <Link href="/docs/sources" className="text-accent hover:underline">
             Sources
           </Link>{" "}
