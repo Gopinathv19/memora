@@ -1,4 +1,6 @@
+import io
 import uuid
+from datetime import datetime, timezone
 from typing import BinaryIO
 
 from sqlalchemy import func, select
@@ -8,7 +10,12 @@ from app.core.errors import NotFoundError, ValidationError
 from app.db.models import Actor, Application, Source, Subject, Tenant
 from app.graph import sync as graph_sync
 from app.schemas.enums import SourceStatus, SourceType
-from app.schemas.source import SourceCreate, SourceDetail, SourceUpdate
+from app.schemas.source import (
+    SourceCreate,
+    SourceDetail,
+    SourceTextCreate,
+    SourceUpdate,
+)
 from app.services.scope import Scope
 from app.services.subject_service import get_subject
 from app.storage import StorageBackend
@@ -65,6 +72,7 @@ def create_source_from_upload(
     scope: Scope,
     storage: StorageBackend,
     created_by_actor_id: uuid.UUID | None = None,
+    source_type: SourceType = SourceType.FILE,
 ) -> Source:
     """Register a source *and* store its bytes.
 
@@ -85,7 +93,7 @@ def create_source_from_upload(
         application_id=subject.application_id,
         subject_id=subject.id,
         created_by_actor_id=actor_id,
-        type=SourceType.FILE.value,
+        type=source_type.value,
         mime_type=content_type,
         filename=filename,
         storage_uri=stored.storage_uri,
@@ -101,6 +109,44 @@ def create_source_from_upload(
         raise
     db.refresh(source)
     return source
+
+
+def _text_filename(title: str | None, prefix: str, suffix: str) -> str:
+    if title is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        return f"{prefix}-{stamp}{suffix}"
+    # The parser picks its reader from the extension, so make sure there is one.
+    return title if title.lower().endswith(suffix) else f"{title}{suffix}"
+
+
+def create_source_from_text(
+    db: Session,
+    subject_id: uuid.UUID,
+    payload: SourceTextCreate,
+    scope: Scope,
+    storage: StorageBackend,
+) -> Source:
+    """Register a source from raw text by storing it as a .txt or .md object.
+
+    Going through the upload path means a text source is indistinguishable from
+    an uploaded text file downstream: same storage layout, same extraction.
+    """
+    if payload.format == "markdown":
+        suffix, mime = ".md", "text/markdown"
+    else:
+        suffix, mime = ".txt", "text/plain"
+    prefix = "chat" if payload.type == SourceType.CHAT else "note"
+    return create_source_from_upload(
+        db,
+        subject_id,
+        fileobj=io.BytesIO(payload.text.encode("utf-8")),
+        filename=_text_filename(payload.title, prefix, suffix),
+        content_type=f"{mime}; charset=utf-8",
+        scope=scope,
+        storage=storage,
+        created_by_actor_id=payload.created_by_actor_id,
+        source_type=payload.type,
+    )
 
 
 def get_source(db: Session, source_id: uuid.UUID, scope: Scope) -> Source:

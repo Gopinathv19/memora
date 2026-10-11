@@ -2,7 +2,7 @@
 
 export type ResourceStatus = "active" | "suspended" | "revoked";
 export type ActorType = "user" | "service" | "agent" | "system";
-export type SourceType = "file" | "chat" | "url";
+export type SourceType = "file" | "chat" | "url" | "text";
 export type SourceStatus = "pending" | "processing" | "completed" | "failed";
 
 export interface Tenant {

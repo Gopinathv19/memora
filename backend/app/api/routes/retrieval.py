@@ -26,6 +26,7 @@ def ask(
     The scope decides what knowledge exists to answer from: a console user
     queries every tenant they own, a credential queries its own application.
     Optional `subject_id`/`source_id` narrow the search further.
+    `generate=false` returns the ranked chunks without writing an answer.
     """
     return retrieval_service.answer_query(
         db,
@@ -34,4 +35,6 @@ def ask(
         subject_id=payload.subject_id,
         source_id=payload.source_id,
         strategy_id=payload.strategy_id,
+        generate=payload.generate,
+        top_k=payload.top_k,
     )

@@ -152,3 +152,49 @@ def test_upload_a_file_as_an_application(client):
     # Deleting the source removes the stored object too.
     assert client.delete(f"/api/v1/sources/{source['id']}", headers=auth).status_code == 204
     assert client.get(f"/api/v1/sources/{source['id']}", headers=auth).status_code == 404
+
+
+def test_register_raw_text_as_an_application(client):
+    """Plain text is posted as JSON and stored as a .txt/.md object."""
+    tenant_id = client.post("/api/v1/tenants", json={"name": "Acme Notes"}).json()["id"]
+    application_id = client.post(
+        f"/api/v1/tenants/{tenant_id}/applications",
+        json={"name": "Notes", "slug": "notes"},
+    ).json()["id"]
+    token = client.post(
+        f"/api/v1/applications/{application_id}/credentials",
+        json={"name": "Production"},
+    ).json()["token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    subject_id = client.post(
+        f"/api/v1/applications/{application_id}/subjects",
+        json={"external_id": "user-42"},
+        headers=auth,
+    ).json()["id"]
+    url = f"/api/v1/subjects/{subject_id}/sources/text"
+
+    text = "Our refund window is 30 days — no questions asked."
+    created = client.post(url, json={"text": text, "title": "Refund policy"}, headers=auth)
+    assert created.status_code == 201, created.text
+    source = created.json()
+    assert source["type"] == "text"
+    assert source["filename"] == "Refund policy.txt"
+    assert source["mime_type"] == "text/plain; charset=utf-8"
+    assert source["size_bytes"] == len(text.encode("utf-8"))
+    assert source["has_stored_content"] is True
+    assert source["status"] == "pending"
+
+    content = client.get(f"/api/v1/sources/{source['id']}/content", headers=auth)
+    assert content.status_code == 200
+    assert content.content.decode("utf-8") == text
+
+    # Markdown chat with no title gets a generated .md filename.
+    chat = client.post(
+        url, json={"text": "**user:** hi", "format": "markdown", "type": "chat"}, headers=auth
+    ).json()
+    assert chat["type"] == "chat"
+    assert chat["filename"].startswith("chat-") and chat["filename"].endswith(".md")
+
+    # Blank text, and types that are not text-shaped, are rejected.
+    assert client.post(url, json={"text": "   \n"}, headers=auth).status_code == 422
+    assert client.post(url, json={"text": "x", "type": "url"}, headers=auth).status_code == 422

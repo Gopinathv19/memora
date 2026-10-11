@@ -332,6 +332,26 @@ export const api = {
         body: form,
       });
     },
+    /**
+     * Register a source from raw text. Memora stores it as a .txt (or .md)
+     * and it behaves like an uploaded text file from then on.
+     */
+    createText: (
+      subjectId: string,
+      body: {
+        text: string;
+        title?: string | null;
+        format?: "plain" | "markdown";
+        type?: "text" | "chat";
+        created_by_actor_id?: string | null;
+        extract?: boolean;
+        extract_mode?: ExtractionMode;
+      },
+    ) =>
+      request<Source>(`/subjects/${subjectId}/sources/text`, {
+        method: "POST",
+        body: json(body),
+      }),
     update: (id: string, body: { status?: string; filename?: string }) =>
       request<Source>(`/sources/${id}`, { method: "PATCH", body: json(body) }),
     /** Move a file to another subject (folder) in the same application. */

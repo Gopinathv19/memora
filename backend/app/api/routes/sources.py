@@ -25,6 +25,7 @@ from app.schemas.source import (
     SourceDetail,
     SourceMove,
     SourceRead,
+    SourceTextCreate,
     SourceUpdate,
 )
 from app.services import extraction_service, graph_service, source_service
@@ -90,25 +91,68 @@ def upload_source(
         created_by_actor_id=created_by_actor_id,
     )
     if extract:
-        extraction = extraction_service.start_extraction(
-            db,
-            source.id,
+        _extract_in_background(
+            db, source, scope, storage, agent, graph, background,
             ExtractionRequest(
                 mode=extract_mode,
                 instructions=extract_instructions,
                 actor_id=created_by_actor_id,
             ),
-            scope,
+            build_graph,
         )
-        background.add_task(
-            extraction_service.run_extraction, extraction.id, storage, agent
-        )
-        if build_graph:
-            background.add_task(
-                graph_service.build_after_extraction, extraction.id, graph
-            )
-        db.refresh(source)
     return source
+
+
+@subject_router.post(
+    "/text", response_model=SourceRead, status_code=status.HTTP_201_CREATED
+)
+def create_text_source(
+    subject_id: uuid.UUID,
+    payload: SourceTextCreate,
+    db: DbSession,
+    scope: CurrentScope,
+    storage: Storage,
+    agent: ExtractionAgentDep,
+    graph: GraphIngestionDep,
+    background: BackgroundTasks,
+):
+    """Register a source by posting raw text: a pasted note, a message.
+
+    JSON rather than multipart, so an application can send text without
+    wrapping it in a file. Memora stores it as a .txt (or .md with
+    `format="markdown"`) and the rest behaves exactly like `/upload`,
+    including `extract` and `build_graph`.
+    """
+    source = source_service.create_source_from_text(
+        db, subject_id, payload, scope, storage
+    )
+    if payload.extract:
+        _extract_in_background(
+            db, source, scope, storage, agent, graph, background,
+            ExtractionRequest(
+                mode=payload.extract_mode,
+                instructions=payload.extract_instructions,
+                actor_id=payload.created_by_actor_id,
+            ),
+            payload.build_graph,
+        )
+    return source
+
+
+def _extract_in_background(
+    db, source, scope, storage, agent, graph, background, request, build_graph
+) -> None:
+    """Start extraction version 1 for a just-stored source, and optionally the
+    graph build after it. Leaves `source` refreshed (now `processing`)."""
+    extraction = extraction_service.start_extraction(db, source.id, request, scope)
+    background.add_task(
+        extraction_service.run_extraction, extraction.id, storage, agent
+    )
+    if build_graph:
+        background.add_task(
+            graph_service.build_after_extraction, extraction.id, graph
+        )
+    db.refresh(source)
 
 
 @subject_router.get("", response_model=list[SourceDetail])

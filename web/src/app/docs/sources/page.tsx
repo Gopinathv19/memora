@@ -116,6 +116,114 @@ const source = await memora(\`/subjects/\${subjectId}/sources/upload\`, {
         />
       </Section>
 
+      <Section title="Send text">
+        <Endpoint method="POST" path="/api/v1/subjects/{subject_id}/sources/text">
+          JSON. For text you already hold in memory — a note, a message, copied
+          page content — with no file to wrap it in. Memora stores it as a{" "}
+          <C>.txt</C> (or <C>.md</C>) and from then on it behaves exactly like an
+          uploaded text file. Up to 1,000,000 characters.
+        </Endpoint>
+        <Fields
+          rows={[
+            {
+              name: "text",
+              type: "string",
+              required: true,
+              description: "The content. Must not be blank.",
+            },
+            {
+              name: "title",
+              type: "string | null",
+              description: (
+                <>
+                  Becomes the filename, with <C>.txt</C> or <C>.md</C> added.
+                  Defaults to <C>note-&lt;timestamp&gt;</C> (or{" "}
+                  <C>chat-&lt;timestamp&gt;</C>).
+                </>
+              ),
+            },
+            {
+              name: "format",
+              type: "string",
+              description: (
+                <>
+                  <C>plain</C> (default) or <C>markdown</C>.
+                </>
+              ),
+            },
+            {
+              name: "type",
+              type: "string",
+              description: (
+                <>
+                  <C>text</C> (default) for a note or snippet, <C>chat</C> for a
+                  conversation.
+                </>
+              ),
+            },
+            {
+              name: "created_by_actor_id",
+              type: "uuid | null",
+              description:
+                "Which actor sent it. Audit only; must belong to the same application.",
+            },
+            {
+              name: "extract",
+              type: "boolean",
+              description: (
+                <>
+                  Same as on the upload: <C>true</C> starts extraction in the
+                  background. Also <C>extract_mode</C>,{" "}
+                  <C>extract_instructions</C> and <C>build_graph</C>.
+                </>
+              ),
+            },
+          ]}
+        />
+        <CodeTabs
+          sample={{
+            python: `source = client.post(
+    f"/subjects/{subject_id}/sources/text",
+    json={
+        "text": "Our refund window is 30 days from delivery.",
+        "title": "Refund policy",
+        "created_by_actor_id": actor_id,
+        "extract": True,
+    },
+).json()`,
+            js: `const source = await memora(\`/subjects/\${subjectId}/sources/text\`, {
+  method: "POST",
+  body: JSON.stringify({
+    text: "Our refund window is 30 days from delivery.",
+    title: "Refund policy",
+    created_by_actor_id: actorId,
+    extract: true,
+  }),
+});`,
+            curl: `curl -s -X POST \\
+  ${API_BASE_URL}/api/v1/subjects/$SUBJECT_ID/sources/text \\
+  -H "Authorization: Bearer $MEMORA_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"text": "Our refund window is 30 days from delivery.", "title": "Refund policy", "extract": true}'`,
+          }}
+        />
+        <ResponseBlock
+          status={201}
+          json={`{
+  "id": "7e02…",
+  "subject_id": "9d77…",
+  "type": "text",
+  "mime_type": "text/plain; charset=utf-8",
+  "filename": "Refund policy.txt",
+  "storage_uri": "s3://memora-documents/a41e…/9d77…/7e02…-Refund_policy.txt",
+  "has_stored_content": true,
+  "size_bytes": 43,
+  "status": "processing",
+  "created_at": "2026-10-07T09:12:04.551Z"
+}`}
+        />
+      </Section>
+
       <Section title="Register something stored elsewhere">
         <Endpoint method="POST" path="/api/v1/subjects/{subject_id}/sources">
           JSON. For content that already lives in your own storage, or for a URL

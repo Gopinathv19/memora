@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import type { Actor, Application, CredentialCreated, Subject, Tenant } from "@/lib/types";
 import { useMutation, useResource } from "@/lib/useResource";
 
-import { Field, FileInput, Modal, Select, TextInput } from "./form";
+import { Field, FileInput, Modal, Select, TextArea, TextInput } from "./form";
 import { Button, InlineError, Mono } from "./ui";
 
 /**
@@ -633,13 +633,17 @@ const SOURCE_TYPES = [
   { value: "file", label: "File — already in external storage" },
 ];
 
+/** Matches MAX_TEXT_CHARS on the backend. */
+const MAX_TEXT_CHARS = 1_000_000;
+
 /**
- * Registering a source, two ways.
+ * Registering a source, three ways.
  *
  * "Upload a file" posts the bytes to Memora, which stores them and returns a
- * tracked source row. "Register metadata" records a source whose content lives
- * somewhere else (a URL, an S3 object, a chat transcript) without moving any
- * bytes. Both land in `pending`; neither extracts anything.
+ * tracked source row. "Paste text" does the same for raw text, which Memora
+ * stores as a .txt or .md. "Register metadata" records a source whose content
+ * lives somewhere else (a URL, an S3 object) without moving any bytes. All
+ * land in `pending`; only the first two can extract straight away.
  */
 export function CreateSourceModal({
   subjectId,
@@ -654,8 +658,12 @@ export function CreateSourceModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [mode, setMode] = useState<"upload" | "metadata">("upload");
+  const [mode, setMode] = useState<"upload" | "text" | "metadata">("upload");
   const [file, setFile] = useState<File | null>(null);
+  const [text, setText] = useState("");
+  const [title, setTitle] = useState("");
+  const [textType, setTextType] = useState<"text" | "chat">("text");
+  const [textFormat, setTextFormat] = useState<"plain" | "markdown">("plain");
   const [type, setType] = useState("url");
   const [filename, setFilename] = useState("");
   const [mimeType, setMimeType] = useState("");
@@ -684,9 +692,10 @@ export function CreateSourceModal({
   );
   const upload = useMutation(api.sources.upload);
   const register = useMutation(api.sources.create);
+  const saveText = useMutation(api.sources.createText);
 
-  const pending = upload.pending || register.pending;
-  const error = upload.error ?? register.error;
+  const pending = upload.pending || register.pending || saveText.pending;
+  const error = upload.error ?? register.error ?? saveText.error;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -699,7 +708,17 @@ export function CreateSourceModal({
             actorId || null,
             extractAfter ? { mode: extractMode } : null,
           ))
-        : await register.mutate(subject, {
+        : mode === "text"
+          ? await saveText.mutate(subject, {
+              text,
+              title: title.trim() || null,
+              format: textFormat,
+              type: textType,
+              created_by_actor_id: actorId || null,
+              extract: extractAfter,
+              extract_mode: extractMode,
+            })
+          : await register.mutate(subject, {
             type,
             filename: filename.trim() || null,
             mime_type: mimeType.trim() || null,
@@ -708,6 +727,40 @@ export function CreateSourceModal({
           });
     if (created) onCreated();
   };
+
+  const extractControls = (
+    <>
+      <label className="flex items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          checked={extractAfter}
+          onChange={(event) => setExtractAfter(event.target.checked)}
+          disabled={pending}
+          className="mt-0.5 size-4 accent-[var(--color-brand)]"
+        />
+        <span>
+          <span className="font-medium text-ink">Extract after upload</span>
+          <span className="block text-xs text-ink-secondary">
+            Runs the Extraction Agent in the background (NVIDIA models). PDF,
+            images, DOCX, PPTX, XLSX and text are supported.
+          </span>
+        </span>
+      </label>
+      {extractAfter && (
+        <Field label="Extraction mode">
+          <Select
+            value={extractMode}
+            onChange={(value) => setExtractMode(value as "standard" | "deep")}
+            options={[
+              { value: "standard", label: "Standard — triage each page (cheapest)" },
+              { value: "deep", label: "Deep — every page to the layout model" },
+            ]}
+            disabled={pending}
+          />
+        </Field>
+      )}
+    </>
+  );
 
   return (
     <Modal
@@ -720,6 +773,7 @@ export function CreateSourceModal({
         {(
           [
             ["upload", "Upload a file"],
+            ["text", "Paste text"],
             ["metadata", "Register metadata"],
           ] as const
         ).map(([value, label]) => (
@@ -775,35 +829,59 @@ export function CreateSourceModal({
                 — {file.type || "unknown type"}, {file.size.toLocaleString()} bytes
               </p>
             )}
-            <label className="flex items-start gap-2.5 text-sm">
-              <input
-                type="checkbox"
-                checked={extractAfter}
-                onChange={(event) => setExtractAfter(event.target.checked)}
+            {extractControls}
+          </>
+        ) : mode === "text" ? (
+          <>
+            <Field
+              label="Text"
+              required
+              hint={`Paste anything — a note, a message, copied page content. ${text.length.toLocaleString()} / ${MAX_TEXT_CHARS.toLocaleString()} characters.`}
+            >
+              <TextArea
+                value={text}
+                onChange={setText}
+                maxLength={MAX_TEXT_CHARS}
+                placeholder="Our refund window is 30 days from the date of delivery…"
                 disabled={pending}
-                className="mt-0.5 size-4 accent-[var(--color-brand)]"
               />
-              <span>
-                <span className="font-medium text-ink">Extract after upload</span>
-                <span className="block text-xs text-ink-secondary">
-                  Runs the Extraction Agent in the background (NVIDIA models). PDF,
-                  images, DOCX, PPTX, XLSX and text files are supported.
-                </span>
-              </span>
-            </label>
-            {extractAfter && (
-              <Field label="Extraction mode">
+            </Field>
+            <Field
+              label="Title"
+              hint="Optional. Becomes the filename; a .txt or .md extension is added for you."
+            >
+              <TextInput
+                value={title}
+                onChange={setTitle}
+                placeholder="Refund policy"
+                disabled={pending}
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Kind">
                 <Select
-                  value={extractMode}
-                  onChange={(value) => setExtractMode(value as "standard" | "deep")}
+                  value={textType}
+                  onChange={(value) => setTextType(value as "text" | "chat")}
                   options={[
-                    { value: "standard", label: "Standard — triage each page (cheapest)" },
-                    { value: "deep", label: "Deep — every page to the layout model" },
+                    { value: "text", label: "Text — a note or snippet" },
+                    { value: "chat", label: "Chat — a conversation" },
                   ]}
                   disabled={pending}
                 />
               </Field>
-            )}
+              <Field label="Format">
+                <Select
+                  value={textFormat}
+                  onChange={(value) => setTextFormat(value as "plain" | "markdown")}
+                  options={[
+                    { value: "plain", label: "Plain text (.txt)" },
+                    { value: "markdown", label: "Markdown (.md)" },
+                  ]}
+                  disabled={pending}
+                />
+              </Field>
+            </div>
+            {extractControls}
           </>
         ) : (
           <>
@@ -868,9 +946,21 @@ export function CreateSourceModal({
         <Actions
           onClose={onClose}
           pending={pending}
-          disabled={!subject || (mode === "upload" && !file)}
-          label={mode === "upload" ? "Upload and register" : "Register source"}
-          pendingLabel={mode === "upload" ? "Uploading…" : "Registering…"}
+          disabled={
+            !subject ||
+            (mode === "upload" && !file) ||
+            (mode === "text" && !text.trim())
+          }
+          label={
+            mode === "upload"
+              ? "Upload and register"
+              : mode === "text"
+                ? "Save text"
+                : "Register source"
+          }
+          pendingLabel={
+            mode === "upload" ? "Uploading…" : mode === "text" ? "Saving…" : "Registering…"
+          }
         />
       </form>
     </Modal>

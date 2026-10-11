@@ -28,8 +28,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.errors import NotFoundError, ValidationError
-from app.db.models import RetrievalChunk
+from app.core.errors import NotFoundError, ServiceUnavailableError, ValidationError
+from app.db.models import RetrievalChunk, Source
 from app.embeddings.provider import EmbeddingProviderError
 from app.llm.client import LLMError, get_llm_client
 from app.retrieval.mmr import mmr_select
@@ -209,6 +209,8 @@ def answer_query(
     subject_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
     strategy_id: uuid.UUID | None = None,
+    generate: bool = True,
+    top_k: int | None = None,
 ) -> dict:
     """Run the full pipeline for one query and return the answer + evidence.
 
@@ -233,7 +235,10 @@ def answer_query(
         get_source(db, source_id, scope)
 
     # --- Stage 0: query embedding (same strategy as the stored vectors) ------
-    embedded = embedding_service.embed_query(db, query, strategy_id=strategy_id)
+    try:
+        embedded = embedding_service.embed_query(db, query, strategy_id=strategy_id)
+    except EmbeddingProviderError as exc:
+        raise ServiceUnavailableError(f"Query embedding failed: {exc}") from exc
     query_vector = embedded["vector"]
     strategy = embedding_service.get_strategy(
         db, uuid.UUID(embedded["strategy_id"])
@@ -260,6 +265,8 @@ def answer_query(
         lambda_=settings.retrieval_mmr_lambda,
     )
 
+    final_k = top_k or settings.retrieval_final_top_k
+
     # --- Stage 3: reranker -----------------------------------------------------
     passages = [c.embedding_text or c.content for c in mmr_picked]
     try:
@@ -270,23 +277,31 @@ def answer_query(
         # than failing the whole query.
         log.warning("reranker unavailable, using MMR order: %s", exc.message)
         ranked = []
-        final = mmr_picked[: settings.retrieval_final_top_k]
+        final = mmr_picked[:final_k]
     else:
         final = []
-        for result in ranked[: settings.retrieval_final_top_k]:
+        for result in ranked[:final_k]:
             cand = mmr_picked[result.index]
             cand.rerank_score = result.score
             final.append(cand)
 
-    # --- Stage 4: LLM generation -----------------------------------------------
-    answer, usage = _generate_answer(query, final)
+    # --- Stage 4: LLM generation (skipped for retrieval-only callers) ---------
+    if generate:
+        try:
+            answer, usage = _generate_answer(query, final)
+        except LLMError as exc:
+            raise ServiceUnavailableError(f"Answer generation failed: {exc}") from exc
+    else:
+        answer, usage = "", _EmptyUsage()
+
+    filenames = _source_filenames(db, {c.source_id for c in final})
 
     return {
         "query": query,
         "answer": answer,
         "strategy_id": str(strategy.id),
         "strategy_name": strategy.name,
-        "chunks": [_chunk_payload(c) for c in final],
+        "chunks": [_chunk_payload(c, filenames.get(c.source_id)) for c in final],
         "retrieval": {
             "hnsw_candidates": len(candidates),
             "mmr_candidates": len(mmr_picked),
@@ -383,11 +398,24 @@ class _EmptyUsage:
     latency_ms = 0
 
 
-def _chunk_payload(c: Candidate) -> dict:
+def _source_filenames(db: Session, source_ids: set[uuid.UUID]) -> dict[uuid.UUID, str | None]:
+    """Filenames for the sources behind the final chunks, in one query.
+
+    The chunks were already scoped by the HNSW SQL, so their sources are the
+    caller's own; no second ownership check is needed here.
+    """
+    if not source_ids:
+        return {}
+    rows = db.query(Source.id, Source.filename).filter(Source.id.in_(source_ids)).all()
+    return {row.id: row.filename for row in rows}
+
+
+def _chunk_payload(c: Candidate, source_filename: str | None = None) -> dict:
     """The evidence the frontend displays under the answer."""
     return {
         "chunk_id": str(c.chunk_id),
         "source_id": str(c.source_id),
+        "source_filename": source_filename,
         "subject_id": str(c.subject_id),
         "content": c.content,
         "content_type": c.content_type,

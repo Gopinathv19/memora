@@ -27,6 +27,8 @@ class SourceType(str, Enum):
     FILE = "file"
     CHAT = "chat"
     URL = "url"
+    # Raw text posted as-is (a pasted note, a message), stored as a .txt or .md.
+    TEXT = "text"
 
 
 class SourceStatus(str, Enum):

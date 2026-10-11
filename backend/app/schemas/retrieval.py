@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class QueryRequest(BaseModel):
@@ -14,6 +14,12 @@ class QueryRequest(BaseModel):
     subject_id: uuid.UUID | None = None
     source_id: uuid.UUID | None = None
     strategy_id: uuid.UUID | None = None
+    # False = retrieval only: return the ranked chunks and skip the LLM.
+    # For consumers that write the answer themselves (their own prompt,
+    # persona, model); `answer` is then an empty string and usage is zero.
+    generate: bool = True
+    # How many chunks to return after reranking. Null = the server setting.
+    top_k: int | None = Field(default=None, ge=1, le=20)
 
 
 class RetrievedChunk(BaseModel):
@@ -21,6 +27,9 @@ class RetrievedChunk(BaseModel):
 
     chunk_id: str
     source_id: str
+    # The source's filename (or title, for text sources), so a consumer can
+    # cite the document without a lookup per chunk.
+    source_filename: str | None = None
     subject_id: str
     content: str
     content_type: str

@@ -64,6 +64,34 @@ export function TextInput({
   );
 }
 
+export function TextArea({
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  rows = 8,
+  maxLength,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  rows?: number;
+  maxLength?: number;
+}) {
+  return (
+    <textarea
+      value={value}
+      rows={rows}
+      maxLength={maxLength}
+      disabled={disabled}
+      placeholder={placeholder}
+      onChange={(event) => onChange(event.target.value)}
+      className={`${FIELD_CLASS} resize-y font-mono text-[13px]`}
+    />
+  );
+}
+
 /**
  * A dropdown, built rather than borrowed.
  *

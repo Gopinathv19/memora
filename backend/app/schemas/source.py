@@ -1,10 +1,14 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from app.schemas.common import ORMModel
-from app.schemas.enums import SourceStatus, SourceType
+from app.schemas.enums import ExtractionMode, SourceStatus, SourceType
+from app.schemas.extraction import MAX_INSTRUCTIONS_CHARS
+
+MAX_TEXT_CHARS = 1_000_000
 
 
 class SourceCreate(BaseModel):
@@ -22,6 +26,38 @@ class SourceCreate(BaseModel):
     size_bytes: int | None = Field(default=None, ge=0)
     status: SourceStatus = SourceStatus.PENDING
     created_by_actor_id: uuid.UUID | None = None
+
+
+class SourceTextCreate(BaseModel):
+    """Register a source from raw text: a pasted note, a message, a transcript.
+
+    Memora stores the text as a .txt (or .md) object, so from here on it is an
+    ordinary stored source -- downloadable, extractable, chunkable.
+    """
+
+    text: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
+    title: str | None = Field(default=None, max_length=512)
+    format: Literal["plain", "markdown"] = "plain"
+    type: Literal[SourceType.TEXT, SourceType.CHAT] = SourceType.TEXT
+    created_by_actor_id: uuid.UUID | None = None
+    extract: bool = False
+    extract_mode: ExtractionMode = ExtractionMode.STANDARD
+    extract_instructions: str | None = Field(
+        default=None, max_length=MAX_INSTRUCTIONS_CHARS
+    )
+    build_graph: bool = False
+
+    @field_validator("text")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be blank")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def _strip_title(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
 
 class SourceUpdate(BaseModel):
