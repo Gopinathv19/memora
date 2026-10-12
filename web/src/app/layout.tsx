@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 
 import { SiteFooter, SiteHeader } from "@/components/SiteHeader";
 
@@ -24,6 +25,11 @@ export default function RootLayout({
         <SiteHeader />
         <div className="flex-1">{children}</div>
         <SiteFooter />
+        <Script
+          src="https://ping-1-4hz7.onrender.com"
+          data-bot-id="bot_lsxd4sw"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );
