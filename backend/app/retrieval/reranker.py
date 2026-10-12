@@ -87,6 +87,10 @@ class NIMReranker:
                         base_url=self.settings.reranker_base_url,
                         headers={"Authorization": f"Bearer {self.settings.nvidia_api_key}"},
                         timeout=self.settings.reranker_timeout_seconds,
+                        # httpx drops idle connections after 5 s by default,
+                        # so consecutive queries each paid a new TLS
+                        # handshake. Keep them for two minutes.
+                        limits=httpx.Limits(keepalive_expiry=120.0),
                     )
         return self._client
 

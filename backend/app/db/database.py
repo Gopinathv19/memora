@@ -15,7 +15,13 @@ _settings = get_settings()
 engine = create_engine(
     _settings.database_url,
     pool_pre_ping=True,   # Neon closes idle connections; re-check before reuse.
-    pool_recycle=280,
+    # pre_ping already catches a connection Neon dropped; recycling every
+    # 280 s on top of that forced a fresh TLS + SCRAM handshake several times
+    # an hour on a busy process. Half an hour keeps the pool warm.
+    pool_recycle=1800,
+    # Fail fast when the database is unreachable instead of hanging a request
+    # for the OS default (minutes).
+    connect_args={"connect_timeout": 10},
     future=True,
 )
 

@@ -23,6 +23,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -158,6 +159,19 @@ class RetrievalChunk(UUIDPrimaryKey, TimestampCreated, Base):
         Index("ix_retrieval_chunks_block_id", "semantic_block_id"),
         Index("ix_retrieval_chunks_extraction_id", "extraction_id"),
         Index("ix_retrieval_chunks_scope_active", "tenant_id", "application_id", "is_active"),
+        # Retrieval narrows by subject (every Ping query) and the per-source
+        # embedding status joins by source; both only ever look at live chunks
+        # (migration b7d9e1f2a3c4).
+        Index(
+            "ix_retrieval_chunks_subject_active",
+            "subject_id",
+            postgresql_where=text("is_active"),
+        ),
+        Index(
+            "ix_retrieval_chunks_source_active",
+            "source_id",
+            postgresql_where=text("is_active"),
+        ),
     )
 
     semantic_block_id: Mapped[uuid.UUID] = mapped_column(

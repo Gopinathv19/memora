@@ -162,7 +162,28 @@ def authenticate_token(db: Session, raw_token: str) -> AuthContext:
     if tenant is None or tenant.status != ResourceStatus.ACTIVE.value:
         raise AuthenticationError(generic)
 
-    credential.last_used_at = datetime.now(UTC)
-    db.commit()
+    now = datetime.now(UTC)
+    if _should_record_use(credential.id, now):
+        credential.last_used_at = now
+        db.commit()
 
     return AuthContext(credential=credential, application=application, tenant=tenant)
+
+
+# `last_used_at` is informational (the console shows "last used 3 minutes
+# ago"). Writing and committing it on every authenticated request cost a
+# round trip and a commit per call, and Ping's parallel calls on one
+# credential queued on the row lock. Record it at most once a minute per
+# credential, per process.
+_LAST_USE_WRITE_INTERVAL_SECONDS = 60.0
+_last_use_written: dict[uuid.UUID, datetime] = {}
+
+
+def _should_record_use(credential_id: uuid.UUID, now: datetime) -> bool:
+    last = _last_use_written.get(credential_id)
+    if last is not None and (now - last).total_seconds() < _LAST_USE_WRITE_INTERVAL_SECONDS:
+        return False
+    if len(_last_use_written) > 10_000:
+        _last_use_written.clear()
+    _last_use_written[credential_id] = now
+    return True

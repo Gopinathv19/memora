@@ -20,6 +20,7 @@ chunks the caller already owns. No new tables; the pipeline reads
 ``retrieval_chunks`` + ``chunk_embeddings`` and writes nothing.
 """
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass, field
@@ -52,6 +53,9 @@ log = logging.getLogger(__name__)
 # parameter. The optional scope filters are appended only when they have a
 # value: an ``(:param IS NULL OR ...)`` clause fails with "could not
 # determine data type of parameter" because psycopg sends NULL untyped.
+#
+# The stored vector rides along as text (``vec``) for the MMR stage, so the
+# candidates arrive with everything that stage needs in this one round trip.
 _HNSW_SELECT = """
     SELECT ce.id AS embedding_id,
            ce.chunk_id,
@@ -65,6 +69,7 @@ _HNSW_SELECT = """
            rc.source_id,
            rc.subject_id,
            rc.extraction_id,
+           ce.embedding::text AS vec,
            1 - (ce.embedding::halfvec(2048) <=> (:qv)::halfvec(2048)) AS similarity
     FROM chunk_embeddings ce
     JOIN retrieval_chunks rc ON rc.id = ce.chunk_id
@@ -80,10 +85,16 @@ def _vector_literal(vector: list[float]) -> str:
 
 
 def _parse_vector(literal: str | None) -> list[float]:
-    """Parse pgvector's text output format back into a list of floats."""
+    """Parse pgvector's text output format back into a list of floats.
+
+    The format ('[0.1,0.2,...]') is a JSON array, and the JSON parser is C,
+    which matters at 50 vectors x 2048 floats per query."""
     if not literal:
         return []
-    return [float(x) for x in literal.strip()[1:-1].split(",") if x]
+    literal = literal.strip()
+    if not literal or literal == "[]":
+        return []
+    return [float(x) for x in json.loads(literal)]
 
 
 @dataclass
@@ -179,27 +190,10 @@ def hnsw_search(
                 page_start=row["page_start"],
                 page_end=row["page_end"],
                 similarity=float(row["similarity"]),
+                vector=_parse_vector(row["vec"]),
             )
         )
     return candidates
-
-
-def _load_vectors(db: Session, candidates: list[Candidate]) -> None:
-    """Fetch the stored vectors for the MMR stage (they are not in the ANN
-    projection; pulling 50 of them by id is one cheap indexed query)."""
-    if not candidates:
-        return
-    ids = [c.chunk_id for c in candidates]
-    rows = db.execute(
-        text(
-            "SELECT chunk_id, embedding::text AS vec FROM chunk_embeddings "
-            "WHERE chunk_id = ANY(:ids) AND embedding_status = 'completed'"
-        ),
-        {"ids": ids},
-    ).mappings()
-    by_chunk = {row["chunk_id"]: _parse_vector(row["vec"]) for row in rows}
-    for cand in candidates:
-        cand.vector = by_chunk.get(cand.chunk_id) or []
 
 
 def answer_query(
@@ -235,14 +229,14 @@ def answer_query(
         get_source(db, source_id, scope)
 
     # --- Stage 0: query embedding (same strategy as the stored vectors) ------
+    # The strategy row comes back with the vector; it is not loaded twice.
     try:
-        embedded = embedding_service.embed_query(db, query, strategy_id=strategy_id)
+        embedded, strategy = embedding_service.embed_query_with_strategy(
+            db, query, strategy_id=strategy_id
+        )
     except EmbeddingProviderError as exc:
         raise ServiceUnavailableError(f"Query embedding failed: {exc}") from exc
     query_vector = embedded["vector"]
-    strategy = embedding_service.get_strategy(
-        db, uuid.UUID(embedded["strategy_id"])
-    )
 
     # --- Stage 1: HNSW / ANN --------------------------------------------------
     candidates = hnsw_search(
@@ -256,8 +250,7 @@ def answer_query(
     if not candidates:
         return _no_context_answer(query, strategy)
 
-    # --- Stage 2: MMR ----------------------------------------------------------
-    _load_vectors(db, candidates)
+    # --- Stage 2: MMR (the candidates already carry their stored vectors) -----
     mmr_picked = mmr_select(
         query_vector,
         candidates,

@@ -79,6 +79,7 @@ class NIMEmbeddingProvider:
                         raise EmbeddingProviderError(
                             "NVIDIA_API_KEY is not set; add it to backend/.env"
                         )
+                    import httpx
                     import openai
 
                     self._client = openai.OpenAI(
@@ -86,6 +87,12 @@ class NIMEmbeddingProvider:
                         api_key=self.settings.nvidia_api_key,
                         timeout=self.settings.llm_timeout_seconds,
                         max_retries=self.settings.embedding_max_retries,
+                        # The SDK's own client drops idle connections after
+                        # 5 s, so every query embedding paid a new TLS
+                        # handshake. Keep connections for two minutes.
+                        http_client=httpx.Client(
+                            limits=httpx.Limits(keepalive_expiry=120.0),
+                        ),
                     )
         return self._client
 

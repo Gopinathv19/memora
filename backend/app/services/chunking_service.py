@@ -89,9 +89,14 @@ def chunk_extraction(
     settings = get_settings()
 
     # --- Persist document_units -----------------------------------------------
+    # Ids are assigned here rather than read back after a flush per row: a
+    # document with hundreds of units and blocks used to cost one round trip
+    # each. Everything now goes to the database in a few batched INSERTs at
+    # commit.
     unit_id_map: list[uuid.UUID] = []  # index → unit id
     for position, u in enumerate(units):
         unit = DocumentUnit(
+            id=uuid.uuid4(),
             extraction_id=extraction.id,
             tenant_id=source.tenant_id,
             application_id=source.application_id,
@@ -105,7 +110,6 @@ def chunk_extraction(
             section_path=u.section_path,
         )
         db.add(unit)
-        db.flush()  # get the id
         unit_id_map.append(unit.id)
 
     # --- Persist semantic_blocks + retrieval_chunks ---------------------------
@@ -113,6 +117,7 @@ def chunk_extraction(
     for block_position, block in enumerate(blocks):
         block_unit_ids = [unit_id_map[i] for i in block.unit_indices if i < len(unit_id_map)]
         semantic_block = SemanticBlock(
+            id=uuid.uuid4(),
             extraction_id=extraction.id,
             tenant_id=source.tenant_id,
             application_id=source.application_id,
@@ -127,7 +132,6 @@ def chunk_extraction(
             content=block.content,
         )
         db.add(semantic_block)
-        db.flush()
 
         chunk_list = chunk_semantic_block(block, settings)
         for c in chunk_list:

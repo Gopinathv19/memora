@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, joinedload, selectinload
 
 from app.core.config import get_settings
 from app.core.errors import ConflictError, NotFoundError, ValidationError
@@ -94,7 +94,7 @@ def get_active_strategy(db: Session) -> EmbeddingStrategy:
     """The single active strategy. Loaded with its model in one query."""
     strategy = db.execute(
         select(EmbeddingStrategy)
-        .options(selectinload(EmbeddingStrategy.model))
+        .options(joinedload(EmbeddingStrategy.model))
         .where(EmbeddingStrategy.is_active == True)  # noqa: E712
         .order_by(EmbeddingStrategy.created_at)
         .limit(1)
@@ -107,7 +107,7 @@ def get_active_strategy(db: Session) -> EmbeddingStrategy:
 def get_strategy(db: Session, strategy_id: uuid.UUID) -> EmbeddingStrategy:
     strategy = db.execute(
         select(EmbeddingStrategy)
-        .options(selectinload(EmbeddingStrategy.model))
+        .options(joinedload(EmbeddingStrategy.model))
         .where(EmbeddingStrategy.id == strategy_id)
     ).scalar_one_or_none()
     if strategy is None:
@@ -285,8 +285,12 @@ def enqueue_embeddings(
     existing_by_chunk: dict[uuid.UUID, list[ChunkEmbedding]] = {}
     if chunks:
         chunk_ids = [c.id for c in chunks]
+        # Only status and hash are read here; leave the 2048-float vectors
+        # in the database instead of parsing one per existing row.
         rows = db.execute(
-            select(ChunkEmbedding).where(
+            select(ChunkEmbedding)
+            .options(defer(ChunkEmbedding.embedding))
+            .where(
                 ChunkEmbedding.strategy_id == strategy.id,
                 ChunkEmbedding.chunk_id.in_(chunk_ids),
             )
@@ -362,8 +366,11 @@ def claim_pending(
     if strategy_id is not None:
         predicates.append(ChunkEmbedding.strategy_id == strategy_id)
 
+    # The placeholder vectors are overwritten once embedded; loading them
+    # here would parse up to claim_size x 2048 floats for nothing.
     rows = db.execute(
         select(ChunkEmbedding)
+        .options(defer(ChunkEmbedding.embedding))
         .where(*predicates)
         .order_by(ChunkEmbedding.created_at)
         .limit(claim_size)
@@ -436,62 +443,86 @@ def run_embedding_batch(
 
         for start in range(0, len(strategy_rows), batch_size):
             batch = strategy_rows[start : start + batch_size]
-            inputs: list[str | None] = []
-            valid_rows: list[ChunkEmbedding] = []
-            for row in batch:
-                chunk = chunks.get(row.chunk_id)
-                if chunk is None:
-                    _fail_row(db, row, "chunk no longer exists", now)
-                    failed += 1
-                    continue
-                inputs.append(build_document_input(cfg, chunk.embedding_text))
-                valid_rows.append(row)
-
-            if not valid_rows:
-                continue
-
-            try:
-                vectors, usage = provider.embed_documents(
-                    cfg.model_identifier, inputs, cfg.dimension  # type: ignore[arg-type]
-                )
-            except EmbeddingProviderError as exc:
-                # Batch-level failure: every row in this batch is failed, but
-                # other batches/strategies still get their chance.
-                for row in valid_rows:
-                    _fail_row(db, row, exc.message, now)
-                failed += len(valid_rows)
-                log.warning(
-                    "embedding batch failed (strategy=%s batch=%d): %s",
-                    strategy_id, len(valid_rows), exc.message,
-                )
-                continue
-
-            for row, vector in zip(valid_rows, vectors):
-                try:
-                    validate_dimension(vector, cfg.dimension)
-                    final = (
-                        l2_normalize(vector)
-                        if cfg.normalization == "l2"
-                        else vector
-                    )
-                    row.embedding = final
-                    row.embedding_status = COMPLETED
-                    row.error_message = None
-                    row.embedded_at = now
-                    row.updated_at = now
-                    completed += 1
-                except ValueError as exc:
-                    _fail_row(db, row, str(exc), now)
-                    failed += 1
-
-            log.info(
-                "embedded batch: strategy=%s model=%s chunks=%d tokens=%d latency_ms=%d",
-                strategy_id, cfg.model_identifier, len(valid_rows),
-                usage.total_tokens, usage.latency_ms,
+            done, broken = _embed_one_batch(
+                db, batch, chunks, cfg, provider, strategy_id, now
             )
+            completed += done
+            failed += broken
+            # Commit per provider batch: a status poll sees chunks turn
+            # `completed` as they are embedded instead of all at once at the
+            # end of a claim, and a crash mid-claim keeps the finished
+            # batches instead of redoing them.
+            db.commit()
 
     db.commit()
     return {"claimed": len(rows), "completed": completed, "failed": failed}
+
+
+def _embed_one_batch(
+    db: Session,
+    batch: list[ChunkEmbedding],
+    chunks: dict[uuid.UUID, RetrievalChunk],
+    cfg: EmbeddingStrategyConfig,
+    provider: EmbeddingProvider,
+    strategy_id: uuid.UUID,
+    now: datetime,
+) -> tuple[int, int]:
+    """Embed one provider-sized batch of claimed rows. Returns (completed,
+    failed). Never raises; every failure is recorded on its row."""
+    completed = failed = 0
+    inputs: list[str | None] = []
+    valid_rows: list[ChunkEmbedding] = []
+    for row in batch:
+        chunk = chunks.get(row.chunk_id)
+        if chunk is None:
+            _fail_row(db, row, "chunk no longer exists", now)
+            failed += 1
+            continue
+        inputs.append(build_document_input(cfg, chunk.embedding_text))
+        valid_rows.append(row)
+
+    if not valid_rows:
+        return completed, failed
+
+    try:
+        vectors, usage = provider.embed_documents(
+            cfg.model_identifier, inputs, cfg.dimension  # type: ignore[arg-type]
+        )
+    except EmbeddingProviderError as exc:
+        # Batch-level failure: every row in this batch is failed, but
+        # other batches/strategies still get their chance.
+        for row in valid_rows:
+            _fail_row(db, row, exc.message, now)
+        log.warning(
+            "embedding batch failed (strategy=%s batch=%d): %s",
+            strategy_id, len(valid_rows), exc.message,
+        )
+        return completed, failed + len(valid_rows)
+
+    for row, vector in zip(valid_rows, vectors):
+        try:
+            validate_dimension(vector, cfg.dimension)
+            final = (
+                l2_normalize(vector)
+                if cfg.normalization == "l2"
+                else vector
+            )
+            row.embedding = final
+            row.embedding_status = COMPLETED
+            row.error_message = None
+            row.embedded_at = now
+            row.updated_at = now
+            completed += 1
+        except ValueError as exc:
+            _fail_row(db, row, str(exc), now)
+            failed += 1
+
+    log.info(
+        "embedded batch: strategy=%s model=%s chunks=%d tokens=%d latency_ms=%d",
+        strategy_id, cfg.model_identifier, len(valid_rows),
+        usage.total_tokens, usage.latency_ms,
+    )
+    return completed, failed
 
 
 def _fail_row(db: Session, row: ChunkEmbedding, message: str, now: datetime) -> None:
@@ -589,13 +620,13 @@ def retry_failed(db: Session, scope: Scope, strategy_id: uuid.UUID | None = None
 
 def reset_interrupted(db: Session) -> int:
     """At startup: rows still `processing` belonged to a dead worker."""
-    rows = db.execute(
-        select(ChunkEmbedding).where(ChunkEmbedding.embedding_status == PROCESSING)
-    ).scalars().all()
-    for row in rows:
-        row.embedding_status = PENDING
+    result = db.execute(
+        update(ChunkEmbedding)
+        .where(ChunkEmbedding.embedding_status == PROCESSING)
+        .values(embedding_status=PENDING, updated_at=datetime.now(UTC))
+    )
     db.commit()
-    return len(rows)
+    return result.rowcount or 0
 
 
 # --- query embedding (retrieval preparation) ----------------------------------------
@@ -608,6 +639,15 @@ def embed_query(db: Session, query: str, strategy_id: uuid.UUID | None = None) -
     validates the dimension, normalizes, and returns the vector plus the
     strategy context the retrieval layer will need (scope filters, metric).
     """
+    result, _ = embed_query_with_strategy(db, query, strategy_id)
+    return result
+
+
+def embed_query_with_strategy(
+    db: Session, query: str, strategy_id: uuid.UUID | None = None
+) -> tuple[dict, EmbeddingStrategy]:
+    """`embed_query` plus the strategy row it loaded, so a caller that needs
+    the row (retrieval) does not fetch it a second time."""
     strategy = get_strategy(db, strategy_id) if strategy_id else get_active_strategy(db)
     cfg = _strategy_config(strategy)
     rendered = build_query_input(cfg, query)
@@ -627,7 +667,7 @@ def embed_query(db: Session, query: str, strategy_id: uuid.UUID | None = None) -
         "strategy_name": strategy.name,
         "similarity_metric": strategy.similarity_metric,
         "usage": {"total_tokens": usage.total_tokens, "latency_ms": usage.latency_ms},
-    }
+    }, strategy
 
 
 # --- reporting ----------------------------------------------------------------------
@@ -692,31 +732,30 @@ def source_embedding_status(db: Session, source_id: uuid.UUID, scope: Scope) -> 
         ).scalar_one()
     )
 
-    def _count(status: str) -> int:
-        return int(
-            db.execute(
-                select(func.count())
-                .select_from(ChunkEmbedding)
-                .join(RetrievalChunk, RetrievalChunk.id == ChunkEmbedding.chunk_id)
-                .where(
-                    *base,
-                    ChunkEmbedding.strategy_id == strategy.id,
-                    ChunkEmbedding.embedding_status == status,
-                )
-            ).scalar_one()
-        )
+    # Every status in one grouped query; Ping polls this for each source
+    # it is indexing.
+    by_status = {
+        status: int(count)
+        for status, count in db.execute(
+            select(ChunkEmbedding.embedding_status, func.count())
+            .select_from(ChunkEmbedding)
+            .join(RetrievalChunk, RetrievalChunk.id == ChunkEmbedding.chunk_id)
+            .where(*base, ChunkEmbedding.strategy_id == strategy.id)
+            .group_by(ChunkEmbedding.embedding_status)
+        ).all()
+    }
 
-    embedded = _count(COMPLETED)
+    embedded = by_status.get(COMPLETED, 0)
     return {
         "source_id": str(source_id),
         "strategy_id": str(strategy.id),
         "strategy_name": strategy.name,
         "total_chunks": total,
         "embedded": embedded,
-        "pending": _count(PENDING),
-        "processing": _count(PROCESSING),
-        "failed": _count(FAILED),
-        "stale": _count(STALE),
+        "pending": by_status.get(PENDING, 0),
+        "processing": by_status.get(PROCESSING, 0),
+        "failed": by_status.get(FAILED, 0),
+        "stale": by_status.get(STALE, 0),
         "coverage_percent": round(embedded / total * 100, 1) if total else 0.0,
     }
 
