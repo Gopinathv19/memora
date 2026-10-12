@@ -195,6 +195,10 @@ class RetrievalChunk(UUIDPrimaryKey, TimestampCreated, Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Lexical-search representation (hybrid retrieval): embedding_text + content.
+    # The tsvector column + GIN index are added by the lexical-search migration;
+    # `content` stays the generation/citation text and is never modified.
+    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String(32), nullable=False)
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)

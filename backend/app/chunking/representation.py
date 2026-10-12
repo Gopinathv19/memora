@@ -27,6 +27,29 @@ def build_embedding_text(section_path: list[str], content: str) -> str:
     return content
 
 
+def build_search_text(section_path: list[str], content: str) -> str:
+    """The lexical-search representation: embedding_text + content.
+
+    Hybrid retrieval (docs/embedding-retrieval.md) indexes this into a
+    tsvector ('simple' config) so exact identifiers, error codes, product
+    names and rare proper nouns match lexically as well as semantically.
+    `content` itself is never changed: it stays the generation/citation text.
+
+    Stopwords are stripped (app.core.stopwords): the 'simple' config has no
+    stopword handling of its own, and common words would otherwise index
+    like any other token and add noise to ts_rank_cd.
+    """
+    from app.core.stopwords import strip_stopwords
+
+    return strip_stopwords(
+        "\n".join(
+            part
+            for part in (build_embedding_text(section_path, content), content)
+            if part
+        )
+    )
+
+
 def count_tokens(text: str) -> int:
     """Approximate token count for the given text.
 

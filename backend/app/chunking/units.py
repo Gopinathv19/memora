@@ -122,6 +122,13 @@ _LATEX_REPLACEMENTS: list[tuple[str, str]] = [
 
 def _strip_latex_escapes(line: str) -> str:
     """Remove common LaTeX escapes a transcription model leaks into text."""
+    # A Markdown table separator row ("| --- | --- |") is structure, not
+    # prose: the em/en-dash substitutions below would rewrite it to
+    # "| — | — |", after which no _TABLE_SEP check can ever match it and
+    # the element splitter can no longer recognize the table. Leave
+    # separator rows untouched.
+    if _TABLE_SEP.match(line.strip()):
+        return line
     for pattern, replacement in _LATEX_REPLACEMENTS:
         line = line.replace(pattern, replacement)
     # En/em-dashes written as "--" / "---" in LaTeX.
@@ -365,11 +372,17 @@ def _split_into_elements(
                 current_page = ppage
             para_lines.append(psline)
             i += 1
-        if para_lines:
-            units.append(ParsedUnit(
-                kind="text",
-                content=" ".join(para_lines),
-                page=current_page,
-            ))
+        if not para_lines:
+            # The line looked special (e.g. a table row with no separator
+            # row after it) but matched no special form. Consume it as text
+            # so the walk always advances; without this the paragraph loop
+            # above can break on the very first line and hang forever.
+            para_lines.append(stripped)
+            i += 1
+        units.append(ParsedUnit(
+            kind="text",
+            content=" ".join(para_lines),
+            page=current_page,
+        ))
 
     return units

@@ -34,4 +34,5 @@ def ask(
         subject_id=payload.subject_id,
         source_id=payload.source_id,
         strategy_id=payload.strategy_id,
+        retrieval_mode=payload.retrieval_mode,
     )

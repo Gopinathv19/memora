@@ -20,6 +20,7 @@ from app.chunking import (
     chunk_semantic_block,
     parse_readings,
 )
+from app.chunking.representation import build_search_text
 from app.chunking.structure import assign_section_paths, detect_numbered_headings
 from app.core.config import get_settings
 from app.core.errors import NotFoundError, ValidationError
@@ -147,6 +148,7 @@ def chunk_extraction(
                 chunk_index=global_chunk_index,
                 content=c.content,
                 embedding_text=c.embedding_text,
+                search_text=build_search_text(c.section_path, c.content),
                 token_count=c.token_count,
                 content_type=c.content_type,
                 page_start=c.page_start,

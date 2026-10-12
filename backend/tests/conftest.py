@@ -15,13 +15,30 @@ from sqlalchemy import text
 
 DEFAULT_TEST_DB = "postgresql+psycopg://memora:memora@localhost:55432/memora"
 
+# This must happen at *import* time, before any test module imports `app.*`:
+# `app.db.database` builds its engine at module import, so a fixture that sets
+# the env var later is too late — the engine would point at whatever
+# backend/.env contains (i.e. the production database) and the truncate
+# fixture below would wipe it.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB)
+os.environ.setdefault("API_SECRET", "test-secret")
+os.environ.setdefault("STORAGE_DIR", "./var/test-storage")
+os.environ.pop("ADMIN_API_KEY", None)
+
+# Belt and braces: refuse to run the suite against anything that is not an
+# explicitly local test database. `clean_tables` TRUNCATEs every business
+# table, so pointing it at a real deployment destroys the data.
+_test_db = os.environ["DATABASE_URL"]
+if "localhost" not in _test_db and "127.0.0.1" not in _test_db and "test_database_url" not in os.environ:
+    raise RuntimeError(
+        f"Refusing to run tests against non-local DATABASE_URL: {_test_db}. "
+        "Set TEST_DATABASE_URL to a throwaway database."
+    )
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _environment():
-    os.environ.setdefault("DATABASE_URL", os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB))
-    os.environ.setdefault("API_SECRET", "test-secret")
-    os.environ.setdefault("STORAGE_DIR", "./var/test-storage")
-    os.environ.pop("ADMIN_API_KEY", None)
+    pass
 
 
 @pytest.fixture(scope="session")

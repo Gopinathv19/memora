@@ -32,6 +32,8 @@ from app.core.errors import NotFoundError, ValidationError
 from app.db.models import RetrievalChunk
 from app.embeddings.provider import EmbeddingProviderError
 from app.llm.client import LLMError, get_llm_client
+from app.retrieval.fusion import reciprocal_rank_fusion
+from app.retrieval.lexical import lexical_search
 from app.retrieval.mmr import mmr_select
 from app.retrieval.reranker import RerankerError, get_reranker
 from app.services import embedding_service
@@ -103,6 +105,7 @@ class Candidate:
     page_end: int | None
     # Stage scores, filled as the pipeline runs.
     similarity: float = 0.0          # HNSW cosine similarity to the query
+    lexical_score: float | None = None  # ts_rank_cd, for lexical-only hits
     vector: list = field(default_factory=list)  # stored vector, for MMR
     rerank_score: float | None = None  # reranker logit (stage 3)
 
@@ -184,6 +187,91 @@ def hnsw_search(
     return candidates
 
 
+def _row_to_candidate(row, similarity: float = 0.0, lexical_score: float | None = None) -> Candidate:
+    """Build a Candidate from a dense or lexical row mapping."""
+    return Candidate(
+        chunk_id=row["chunk_id"] if "chunk_id" in row else row["id"],
+        source_id=row["source_id"],
+        subject_id=row["subject_id"],
+        extraction_id=row["extraction_id"],
+        content=row["content"],
+        embedding_text=row["embedding_text"],
+        token_count=row["token_count"],
+        content_type=row["content_type"],
+        section_path=row["section_path"] or [],
+        page_start=row["page_start"],
+        page_end=row["page_end"],
+        similarity=similarity,
+        lexical_score=lexical_score,
+    )
+
+
+def hybrid_candidate_search(
+    db: Session,
+    query: str,
+    query_vector: list[float],
+    strategy_id: uuid.UUID,
+    scope: Scope,
+    subject_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None = None,
+) -> tuple[list[Candidate], dict]:
+    """Stages 1a + 1b + fusion: dense HNSW + lexical tsvector, fused by RRF.
+
+    Returns the fused candidate list (best first, capped at
+    `retrieval_hybrid_top_k`) and a trace dict with per-branch counts and the
+    dense/lexical overlap (useful for judging whether the lexical branch adds
+    complementary evidence).
+    """
+    settings = get_settings()
+
+    dense_rows = hnsw_search(
+        db, query_vector, strategy_id, scope,
+        subject_id=subject_id, source_id=source_id,
+        top_k=settings.retrieval_dense_top_k,
+    )
+    lexical_rows = lexical_search(
+        db, query, strategy_id, scope,
+        subject_id=subject_id, source_id=source_id,
+        limit=settings.retrieval_lexical_top_k,
+    )
+
+    dense_ids = [str(c.chunk_id) for c in dense_rows]
+    lexical_ids = [str(row["chunk_id"]) for row in lexical_rows]
+    overlap = len(set(dense_ids) & set(lexical_ids))
+
+    fused = reciprocal_rank_fusion(
+        ranked_lists=[dense_ids, lexical_ids],
+        k=settings.retrieval_rrf_k,
+    )
+    fused_ids = [chunk_id for chunk_id, _ in fused]
+
+    # Merge both branches' rows into Candidates, keyed by chunk id. A chunk
+    # found by both branches keeps its dense similarity and lexical score.
+    by_id: dict[str, Candidate] = {}
+    for cand in dense_rows:
+        by_id[str(cand.chunk_id)] = cand
+    for row in lexical_rows:
+        chunk_id = str(row["chunk_id"])
+        existing = by_id.get(chunk_id)
+        if existing is not None:
+            existing.lexical_score = float(row["lexical_score"])
+        else:
+            by_id[chunk_id] = _row_to_candidate(
+                row, lexical_score=float(row["lexical_score"])
+            )
+
+    candidates = [by_id[cid] for cid in fused_ids if cid in by_id]
+    candidates = candidates[: settings.retrieval_hybrid_top_k]
+
+    trace = {
+        "dense_candidate_count": len(dense_rows),
+        "lexical_candidate_count": len(lexical_rows),
+        "fused_candidate_count": len(fused_ids),
+        "overlap_candidate_count": overlap,
+    }
+    return candidates, trace
+
+
 def _load_vectors(db: Session, candidates: list[Candidate]) -> None:
     """Fetch the stored vectors for the MMR stage (they are not in the ANN
     projection; pulling 50 of them by id is one cheap indexed query)."""
@@ -209,6 +297,7 @@ def answer_query(
     subject_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
     strategy_id: uuid.UUID | None = None,
+    retrieval_mode: str | None = None,
 ) -> dict:
     """Run the full pipeline for one query and return the answer + evidence.
 
@@ -239,17 +328,43 @@ def answer_query(
         db, uuid.UUID(embedded["strategy_id"])
     )
 
-    # --- Stage 1: HNSW / ANN --------------------------------------------------
-    candidates = hnsw_search(
-        db, query_vector, strategy.id, scope,
-        subject_id=subject_id, source_id=source_id,
-    )
-    log.info(
-        "retrieval: query=%r scope=%s hnsw_candidates=%d",
-        query[:80], "console" if scope.is_console else "credential", len(candidates),
-    )
+    # --- Stage 1: candidate search (hybrid or dense-only) ----------------------
+    # Hybrid: dense HNSW + lexical tsvector -> RRF fusion. The dense-only path
+    # stays available behind `retrieval_hybrid_enabled = false` so baseline and
+    # experiment runs can be compared on the same deployment. A per-request
+    # `retrieval_mode` ("hybrid" | "dense") overrides the server default, so
+    # the console can switch modes per question.
+    hybrid = settings.retrieval_hybrid_enabled
+    if retrieval_mode == "hybrid":
+        hybrid = True
+    elif retrieval_mode == "dense":
+        hybrid = False
+    stage_trace: dict = {}
+    if hybrid:
+        candidates, stage_trace = hybrid_candidate_search(
+            db, query, query_vector, strategy.id, scope,
+            subject_id=subject_id, source_id=source_id,
+        )
+        log.info(
+            "retrieval: query=%r scope=%s hybrid dense=%d lexical=%d overlap=%d fused=%d",
+            query[:80],
+            "console" if scope.is_console else "credential",
+            stage_trace["dense_candidate_count"],
+            stage_trace["lexical_candidate_count"],
+            stage_trace["overlap_candidate_count"],
+            stage_trace["fused_candidate_count"],
+        )
+    else:
+        candidates = hnsw_search(
+            db, query_vector, strategy.id, scope,
+            subject_id=subject_id, source_id=source_id,
+        )
+        log.info(
+            "retrieval: query=%r scope=%s hnsw_candidates=%d",
+            query[:80], "console" if scope.is_console else "credential", len(candidates),
+        )
     if not candidates:
-        return _no_context_answer(query, strategy)
+        return _no_context_answer(query, strategy, stage_trace, settings)
 
     # --- Stage 2: MMR ----------------------------------------------------------
     _load_vectors(db, candidates)
@@ -261,7 +376,11 @@ def answer_query(
     )
 
     # --- Stage 3: reranker -----------------------------------------------------
-    passages = [c.embedding_text or c.content for c in mmr_picked]
+    # The reranker sees `retrieval_rerank_top_k` diversified candidates (not
+    # just the final top-k), so it can recover useful evidence that MMR ranked
+    # below the final cut.
+    rerank_pool = mmr_picked[: settings.retrieval_rerank_top_k]
+    passages = [c.embedding_text or c.content for c in rerank_pool]
     try:
         ranked = get_reranker().rerank(query, passages)
     except RerankerError as exc:
@@ -270,11 +389,11 @@ def answer_query(
         # than failing the whole query.
         log.warning("reranker unavailable, using MMR order: %s", exc.message)
         ranked = []
-        final = mmr_picked[: settings.retrieval_final_top_k]
+        final = rerank_pool[: settings.retrieval_final_top_k]
     else:
         final = []
         for result in ranked[: settings.retrieval_final_top_k]:
-            cand = mmr_picked[result.index]
+            cand = rerank_pool[result.index]
             cand.rerank_score = result.score
             final.append(cand)
 
@@ -292,6 +411,16 @@ def answer_query(
             "mmr_candidates": len(mmr_picked),
             "final_chunks": len(final),
             "reranker_used": bool(ranked),
+            # Hybrid-retrieval trace (docs/embedding-retrieval.md).
+            "dense_candidate_count": stage_trace.get("dense_candidate_count", 0),
+            "lexical_candidate_count": stage_trace.get("lexical_candidate_count", 0),
+            "fused_candidate_count": stage_trace.get("fused_candidate_count", 0),
+            "overlap_candidate_count": stage_trace.get("overlap_candidate_count", 0),
+            "mmr_candidate_count": len(mmr_picked),
+            "reranked_candidate_count": len(rerank_pool),
+            "final_candidate_count": len(final),
+            "lexical_enabled": hybrid,
+            "fusion_method": "rrf" if hybrid else "none",
         },
         "usage": {
             "prompt_tokens": usage.prompt_tokens,
@@ -301,8 +430,10 @@ def answer_query(
     }
 
 
-def _no_context_answer(query: str, strategy) -> dict:
+def _no_context_answer(query: str, strategy, stage_trace: dict | None = None, settings=None) -> dict:
     """The honest empty result: nothing in scope is embedded yet."""
+    stage_trace = stage_trace or {}
+    settings = settings or get_settings()
     return {
         "query": query,
         "answer": (
@@ -317,6 +448,15 @@ def _no_context_answer(query: str, strategy) -> dict:
             "mmr_candidates": 0,
             "final_chunks": 0,
             "reranker_used": False,
+            "dense_candidate_count": stage_trace.get("dense_candidate_count", 0),
+            "lexical_candidate_count": stage_trace.get("lexical_candidate_count", 0),
+            "fused_candidate_count": stage_trace.get("fused_candidate_count", 0),
+            "overlap_candidate_count": stage_trace.get("overlap_candidate_count", 0),
+            "mmr_candidate_count": 0,
+            "reranked_candidate_count": 0,
+            "final_candidate_count": 0,
+            "lexical_enabled": hybrid,
+            "fusion_method": "rrf" if hybrid else "none",
         },
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "latency_ms": 0},
     }

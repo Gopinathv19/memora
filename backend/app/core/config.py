@@ -150,15 +150,34 @@ class Settings(BaseSettings):
     # The first-version pipeline, exactly as specified:
     #   query embedding -> HNSW top 50 -> MMR top 10 -> reranker top 5 -> LLM.
     # Every knob is a setting so tuning is a config change, never a code change.
-    # HNSW candidate pool size (stage 1).
+    # HNSW candidate pool size (stage 1, dense-only path).
     retrieval_hnsw_top_k: int = 50
     # pgvector ef_search for the ANN scan; must be >= top_k for good recall.
     retrieval_hnsw_ef_search: int = 100
     # MMR: relevance/diversity trade-off and target size (stage 2).
     retrieval_mmr_lambda: float = 0.7
-    retrieval_mmr_top_k: int = 10
+    retrieval_mmr_top_k: int = 30
     # Final context size after reranking (stage 3).
-    retrieval_final_top_k: int = 5
+    retrieval_final_top_k: int = 6
+
+    # --- Hybrid retrieval (docs/embedding-retrieval.md) ------------------------
+    # query -> dense HNSW top 40 + lexical tsvector top 40 -> RRF -> MMR ->
+    # reranker -> final context. The dense-only path stays available behind
+    # `retrieval_hybrid_enabled = false` for baseline/experiment comparisons.
+    retrieval_hybrid_enabled: bool = True
+    # Dense (HNSW) candidate pool for the hybrid path.
+    retrieval_dense_top_k: int = 40
+    # Lexical (tsvector) candidate pool for the hybrid path.
+    retrieval_lexical_top_k: int = 40
+    # Fused candidates kept after RRF, before MMR.
+    retrieval_hybrid_top_k: int = 40
+    # Fusion method; only "rrf" is implemented.
+    retrieval_fusion_method: str = "rrf"
+    # RRF smoothing constant (the conventional value is 60).
+    retrieval_rrf_k: int = 60
+    # Reranker input size (stage 3). Raised from 10 so the reranker can
+    # recover useful evidence from a larger, already-diversified pool.
+    retrieval_rerank_top_k: int = 30
     # NeMo Retriever reranking NIM. Hosted rerankers live under
     # {reranker_base_url}/{model}/reranking (a different host and path from
     # the chat/embedding APIs). The reranker is independent of the embedding
