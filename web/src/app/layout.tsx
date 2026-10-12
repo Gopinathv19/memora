@@ -26,7 +26,7 @@ export default function RootLayout({
         <div className="flex-1">{children}</div>
         <SiteFooter />
         <Script
-          src="https://ping-1-4hz7.onrender.com"
+          src="https://ping-1-4hz7.onrender.com/widget.js"
           data-bot-id="bot_lsxd4sw"
           strategy="afterInteractive"
         />
