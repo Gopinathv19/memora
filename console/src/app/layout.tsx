@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { Shell } from "@/components/Shell";
+import { TenantProvider } from "@/lib/tenant-context";
 
 import "./globals.css";
 
@@ -18,7 +19,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Shell>{children}</Shell>
+        <TenantProvider>
+          <Shell>{children}</Shell>
+        </TenantProvider>
       </body>
     </html>
   );

@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatDate, formatRelative } from "@/lib/format";
+import { useTenant } from "@/lib/tenant-context";
 import { useMutation, useResource } from "@/lib/useResource";
 import { DataTable } from "@/components/DataTable";
 import { Field, Select } from "@/components/form";
@@ -24,14 +25,31 @@ function isExpired(expiresAt: string | null): boolean {
 }
 
 export default function CredentialsPage() {
+  const { tenant } = useTenant();
   const [applicationFilter, setApplicationFilter] = useState("");
-  const applications = useResource(() => api.applications.list(), []);
+  const applications = useResource(
+    () => api.applications.list(tenant?.id),
+    [tenant?.id],
+  );
   const credentials = useResource(
     () => api.credentials.list(applicationFilter || undefined),
     [applicationFilter],
   );
   const [creating, setCreating] = useState(false);
   const revoke = useMutation(api.credentials.revoke);
+
+  // The credentials API filters by application only, so tenant scoping
+  // happens here: keep the credentials whose application belongs to the
+  // active tenant. `undefined` while the application list is still loading.
+  const scopedCredentials = tenant
+    ? applications.data
+      ? (credentials.data ?? []).filter((credential) =>
+          applications.data!.some(
+            (application) => application.id === credential.application_id,
+          ),
+        )
+      : undefined
+    : credentials.data;
 
   const applicationName = (id: string) =>
     applications.data?.find((application) => application.id === id)?.name ?? id.split("-")[0];
@@ -49,8 +67,8 @@ export default function CredentialsPage() {
       />
 
       <Panel
-        title="All credentials"
-        counter={credentials.data?.length}
+        title={tenant ? `Credentials in ${tenant.name}` : "All credentials"}
+        counter={scopedCredentials?.length}
         actions={
           <div className="w-72">
             <Field label="Filter by application">
@@ -73,8 +91,8 @@ export default function CredentialsPage() {
           </div>
         )}
         <DataTable
-          rows={credentials.data}
-          loading={credentials.loading}
+          rows={scopedCredentials}
+          loading={credentials.loading || (!!tenant && applications.loading)}
           error={credentials.error}
           onRetry={credentials.reload}
           rowKey={(credential) => credential.id}

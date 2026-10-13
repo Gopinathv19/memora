@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { api } from "@/lib/api";
+import { useTenant } from "@/lib/tenant-context";
 import type { Actor, Application, CredentialCreated, Subject, Tenant } from "@/lib/types";
 import { useMutation, useResource } from "@/lib/useResource";
 
@@ -97,6 +98,55 @@ function ParentPicker<T>({
         options={options}
       />
     </Field>
+  );
+}
+
+/* -------------------------------------------------------------------- Tenant */
+
+export function CreateTenantModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  /** Receives the created tenant so callers can select it straight away. */
+  onCreated: (tenant: Tenant) => void;
+}) {
+  const [name, setName] = useState("");
+  const { mutate, pending, error } = useMutation(api.tenants.create);
+
+  return (
+    <Modal
+      title="Create tenant"
+      description="The organization that will own applications, workspaces and sources."
+      onClose={onClose}
+    >
+      <form
+        className="space-y-4"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          const created = await mutate({ name });
+          if (created) onCreated(created);
+        }}
+      >
+        <Field label="Tenant name" required hint="For example, Acme Corporation.">
+          <TextInput
+            value={name}
+            onChange={setName}
+            placeholder="Acme Corporation"
+            disabled={pending}
+            required
+          />
+        </Field>
+        {error && <InlineError message={error} />}
+        <Actions
+          onClose={onClose}
+          pending={pending}
+          disabled={!name.trim()}
+          label="Create tenant"
+          pendingLabel="Creating…"
+        />
+      </form>
+    </Modal>
   );
 }
 
@@ -204,9 +254,11 @@ export function CreateActorModal({
   const [type, setType] = useState("user");
   const [name, setName] = useState("");
   const [application, setApplication] = useState(applicationId ?? "");
+  const { tenant } = useTenant();
   const applications = useResource<Application[]>(
-    () => (applicationId ? Promise.resolve([]) : api.applications.list()),
-    [applicationId],
+    () =>
+      applicationId ? Promise.resolve([]) : api.applications.list(tenant?.id),
+    [applicationId, tenant?.id],
   );
   const { mutate, pending, error } = useMutation(api.actors.create);
 
@@ -294,9 +346,11 @@ export function CreateSubjectModal({
   const [externalId, setExternalId] = useState("");
   const [actorId, setActorId] = useState("");
   const [application, setApplication] = useState(applicationId ?? "");
+  const { tenant } = useTenant();
   const applications = useResource<Application[]>(
-    () => (applicationId ? Promise.resolve([]) : api.applications.list()),
-    [applicationId],
+    () =>
+      applicationId ? Promise.resolve([]) : api.applications.list(tenant?.id),
+    [applicationId, tenant?.id],
   );
   // The actor list follows the chosen application: picking a different one
   // must not leave an actor from the previous application selected.
@@ -484,9 +538,11 @@ export function CreateCredentialModal({
   const [expiresAt, setExpiresAt] = useState("");
   const [issued, setIssued] = useState<CredentialCreated>();
   const [application, setApplication] = useState(applicationId ?? "");
+  const { tenant } = useTenant();
   const applications = useResource<Application[]>(
-    () => (applicationId ? Promise.resolve([]) : api.applications.list()),
-    [applicationId],
+    () =>
+      applicationId ? Promise.resolve([]) : api.applications.list(tenant?.id),
+    [applicationId, tenant?.id],
   );
   const { mutate, pending, error } = useMutation(api.credentials.create);
 
@@ -665,9 +721,13 @@ export function CreateSourceModal({
   const [extractAfter, setExtractAfter] = useState(false);
   const [extractMode, setExtractMode] = useState<"standard" | "deep">("standard");
 
+  const { tenant } = useTenant();
   const subjects = useResource<Subject[]>(
-    () => (subjectId ? Promise.resolve([]) : api.subjects.list()),
-    [subjectId],
+    () =>
+      subjectId
+        ? Promise.resolve([])
+        : api.subjects.list({ tenantId: tenant?.id }),
+    [subjectId, tenant?.id],
   );
 
   // A subject carries its application, so choosing the subject is enough to

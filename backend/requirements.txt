@@ -30,3 +30,4 @@ rapidfuzz
 
 # Embeddings (docs/embeddings.md): pgvector column type for the ORM.
 pgvector
+cryptography

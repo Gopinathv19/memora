@@ -18,6 +18,8 @@ from app.db.models.chunking import (
 )
 from app.db.models.cache import DocumentCacheEntry, LlmCacheEntry, ReadingCacheEntry
 from app.db.models.credential import ApiCredential
+from app.db.models.drive_connection import DriveConnection
+from app.db.models.drive_import import DriveImport
 from app.db.models.embedding import ChunkEmbedding, EmbeddingModel, EmbeddingStrategy
 from app.db.models.extraction import ExtractionUsage, SourceExtraction
 from app.db.models.graph import SourceGraphBuild
@@ -50,4 +52,6 @@ __all__ = [
     "LlmCacheEntry",
     "Users",
     "Authenticated_User",
+    "DriveConnection",
+    "DriveImport",
 ]

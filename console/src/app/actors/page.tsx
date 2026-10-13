@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
+import { useTenant } from "@/lib/tenant-context";
 import { DataTable } from "@/components/DataTable";
 import { Field, Select } from "@/components/form";
 import { CreateActorModal } from "@/components/modals";
@@ -21,13 +22,22 @@ import {
 
 export default function ActorsPage() {
   const search = useSearchParams();
+  const { tenant } = useTenant();
   const [applicationFilter, setApplicationFilter] = useState(
     () => search.get("application_id") ?? "",
   );
-  const applications = useResource(() => api.applications.list(), []);
+  // The application picker is scoped to the active tenant, when one is set.
+  const applications = useResource(
+    () => api.applications.list(tenant?.id),
+    [tenant?.id],
+  );
   const actors = useResource(
-    () => api.actors.list({ applicationId: applicationFilter || undefined }),
-    [applicationFilter],
+    () =>
+      api.actors.list({
+        applicationId: applicationFilter || undefined,
+        tenantId: applicationFilter ? undefined : tenant?.id,
+      }),
+    [applicationFilter, tenant?.id],
   );
   const [creating, setCreating] = useState(false);
 

@@ -7,6 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
+import { useTenant } from "@/lib/tenant-context";
 import { DataTable } from "@/components/DataTable";
 import { Field, Select } from "@/components/form";
 import { CreateSubjectModal } from "@/components/modals";
@@ -14,21 +15,27 @@ import { Button, Mono, PageHeader, Panel, StatusBadge } from "@/components/ui";
 
 export default function SubjectsPage() {
   const search = useSearchParams();
+  const { tenant } = useTenant();
   const [applicationFilter, setApplicationFilter] = useState(
     () => search.get("application_id") ?? "",
   );
   const [rootsOnly, setRootsOnly] = useState(() => (search.get("roots_only") ?? "true") === "true");
   // Optional: actor filter picked up from the URL if present
   const actorIdFromUrl = search.get("actor_id") ?? undefined;
-  const applications = useResource(() => api.applications.list(), []);
+  // The application picker is scoped to the active tenant, when one is set.
+  const applications = useResource(
+    () => api.applications.list(tenant?.id),
+    [tenant?.id],
+  );
   const subjects = useResource(
     () =>
       api.subjects.list({
+        tenantId: applicationFilter ? undefined : tenant?.id,
         applicationId: applicationFilter || undefined,
         actorId: actorIdFromUrl || undefined,
         rootsOnly,
       }),
-    [applicationFilter, rootsOnly, actorIdFromUrl],
+    [applicationFilter, rootsOnly, actorIdFromUrl, tenant?.id],
   );
   const [creating, setCreating] = useState(false);
 

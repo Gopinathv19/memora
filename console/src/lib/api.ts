@@ -67,7 +67,7 @@ function buildUrl(path: string, query?: Query): string {
   return url.toString();
 }
 
-async function request<T>(
+export async function request<T>(
   path: string,
   init: RequestInit & { query?: Query } = {},
 ): Promise<T> {

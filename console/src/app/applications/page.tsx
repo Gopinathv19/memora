@@ -6,8 +6,8 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useResource } from "@/lib/useResource";
+import { useTenant } from "@/lib/tenant-context";
 import { DataTable } from "@/components/DataTable";
-import { Field, Select } from "@/components/form";
 import { CreateApplicationModal } from "@/components/modals";
 import {
   Button,
@@ -18,11 +18,11 @@ import {
 } from "@/components/ui";
 
 export default function ApplicationsPage() {
-  const [tenantFilter, setTenantFilter] = useState("");
-  const tenants = useResource(() => api.tenants.list(), []);
+  // The active tenant comes from the top-bar switcher, not a per-page filter.
+  const { tenant } = useTenant();
   const applications = useResource(
-    () => api.applications.list(tenantFilter || undefined),
-    [tenantFilter],
+    () => api.applications.list(tenant?.id),
+    [tenant?.id],
   );
   const [creating, setCreating] = useState(false);
 
@@ -39,23 +39,8 @@ export default function ApplicationsPage() {
       />
 
       <Panel
-        title="All applications"
+        title={tenant ? `Applications in ${tenant.name}` : "All applications"}
         counter={applications.data?.length}
-        actions={
-          <div className="w-64">
-            <Field label="Filter by tenant">
-              <Select
-                value={tenantFilter}
-                onChange={setTenantFilter}
-                placeholder="All tenants"
-                options={(tenants.data ?? []).map((tenant) => ({
-                  value: tenant.id,
-                  label: tenant.name,
-                }))}
-              />
-            </Field>
-          </div>
-        }
       >
         <DataTable
           rows={applications.data}
@@ -64,7 +49,7 @@ export default function ApplicationsPage() {
           onRetry={applications.reload}
           rowKey={(application) => application.id}
           empty={{
-            title: tenantFilter
+            title: tenant
               ? "No applications in this tenant"
               : "No applications yet",
             description:
@@ -151,9 +136,9 @@ export default function ApplicationsPage() {
 
       {creating && (
         <CreateApplicationModal
-          // The filter is a starting point, not a precondition: the form asks
-          // for a tenant when none is filtered.
-          tenantId={tenantFilter || undefined}
+          // The active tenant pre-fills the form; with none selected the
+          // form asks which tenant, as before.
+          tenantId={tenant?.id}
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);

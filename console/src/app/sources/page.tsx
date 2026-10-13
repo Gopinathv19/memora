@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatBytes, formatDate } from "@/lib/format";
+import { useTenant } from "@/lib/tenant-context";
 import { useResource } from "@/lib/useResource";
 import { DataTable } from "@/components/DataTable";
 import { Field, Select } from "@/components/form";
@@ -25,16 +26,23 @@ const STATUS_OPTIONS = [
 ];
 
 export default function SourcesPage() {
+  const { tenant } = useTenant();
   const [subjectFilter, setSubjectFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const subjects = useResource(() => api.subjects.list(), []);
+  const subjects = useResource(
+    () => api.subjects.list({ tenantId: tenant?.id }),
+    [tenant?.id],
+  );
   const sources = useResource(
     () =>
       api.sources.list({
+        // A subject already implies its tenant; only pass the tenant
+        // when the list is not narrowed to one subject.
+        tenantId: subjectFilter ? undefined : tenant?.id,
         subjectId: subjectFilter || undefined,
         status: statusFilter || undefined,
       }),
-    [subjectFilter, statusFilter],
+    [subjectFilter, statusFilter, tenant?.id],
   );
   const [registering, setRegistering] = useState(false);
 
@@ -55,7 +63,7 @@ export default function SourcesPage() {
       />
 
       <Panel
-        title="All sources"
+        title={tenant ? `Sources in ${tenant.name}` : "All sources"}
         counter={sources.data?.length}
         actions={
           <div className="flex flex-wrap gap-3">

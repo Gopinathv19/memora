@@ -5,12 +5,11 @@ import { useState } from "react";
 
 import { api } from "@/lib/api";
 import { formatDate, shortId } from "@/lib/format";
-import { useMutation, useResource } from "@/lib/useResource";
+import { useResource } from "@/lib/useResource";
 import { DataTable } from "@/components/DataTable";
-import { Field, Modal, TextInput } from "@/components/form";
+import { CreateTenantModal } from "@/components/modals";
 import {
   Button,
-  InlineError,
   Mono,
   PageHeader,
   Panel,
@@ -109,52 +108,5 @@ export default function TenantsPage() {
         />
       )}
     </>
-  );
-}
-
-function CreateTenantModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [name, setName] = useState("");
-  const { mutate, pending, error } = useMutation(api.tenants.create);
-
-  return (
-    <Modal
-      title="Create tenant"
-      description="The organization that will own applications, workspaces and sources."
-      onClose={onClose}
-    >
-      <form
-        className="space-y-4"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          const created = await mutate({ name });
-          if (created) onCreated();
-        }}
-      >
-        <Field label="Tenant name" required hint="For example, Acme Corporation.">
-          <TextInput
-            value={name}
-            onChange={setName}
-            placeholder="Acme Corporation"
-            disabled={pending}
-            required
-          />
-        </Field>
-        {error && <InlineError message={error} />}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" disabled={pending || !name.trim()}>
-            {pending ? "Creating…" : "Create tenant"}
-          </Button>
-        </div>
-      </form>
-    </Modal>
   );
 }

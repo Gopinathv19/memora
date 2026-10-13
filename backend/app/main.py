@@ -22,12 +22,19 @@ from app.api.routes import (
     tenants,
     usage,
 )
+from app.connectors.google_drive import routes as gdrive_routes
 from app.core.config import get_settings
 from app.core.errors import MemoraError
+from app.core.logging import install_access_log_redaction
 
 API_PREFIX = "/api/v1"
 
 settings = get_settings()
+
+# Before the server writes its first access-log line: credential-shaped query
+# parameters (the Drive OAuth callback carries ?code=...&state=...) are
+# redacted, so a log file never holds a usable secret.
+install_access_log_redaction()
 
 
 @asynccontextmanager
@@ -107,6 +114,19 @@ async def lifespan(_: FastAPI):
     stop_workers = threading.Event()
     if durable and settings.job_worker_enabled:
         job_service.start_workers(stop_workers)
+
+    # Temp PDFs from crashed Drive imports survive in the system temp dir
+    # with a full customer document in them; sweep before serving.
+    try:
+        from app.connectors.google_drive.rag_adapter import sweep_stale_temp_files
+
+        removed = sweep_stale_temp_files()
+        if removed:
+            logging.getLogger(__name__).warning(
+                "removed %d stale Drive temp file(s)", removed
+            )
+    except Exception:
+        logging.getLogger(__name__).exception("Drive temp-file sweep failed")
     yield
     stop_workers.set()
 
@@ -170,6 +190,7 @@ for router in (
     embeddings.router,
     retrieval.router,
     usage.router,
+    gdrive_routes.router,
 ):
     app.include_router(router, prefix=API_PREFIX)
 

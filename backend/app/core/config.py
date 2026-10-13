@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     r2_secret_access_key: str = ""
     r2_bucket: str = "memora-documents"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # The console's own origin. The Drive connector's OAuth callback redirects
+    # the browser back here (an absolute URL -- a relative one would resolve
+    # against the backend and 404).
+    console_base_url: str = "http://localhost:3000"
 
     # Prefix carried by every raw API token Memora issues.
     token_prefix: str = "memora_"
@@ -50,6 +54,16 @@ class Settings(BaseSettings):
     # every Google ID token was minted for this client id. No client secret
     # is needed for the ID-token flow.
     google_client_id: str = ""
+
+    # --- Google Drive connector (app/connectors/google_drive) ----------------
+    # A separate OAuth 2.0 *authorization-code* client from the sign-in one:
+    # the Drive connector needs a client secret and a redirect URI, and asks
+    # for the read-only Drive scope. Empty = the connector answers 503.
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""
+    # The Drive connector's own OAuth client (a different client from the
+    # sign-in one). Falls back to the sign-in client id when unset.
+    google_drive_client_id: str = ""
 
     # --- Extraction Agent (docs/extraction-agent.md) -------------------------
     # Two OpenAI-compatible providers, both serving NVIDIA open models.
@@ -312,6 +326,18 @@ class Settings(BaseSettings):
     reranker_max_passage_chars: int = 4000
     reranker_timeout_seconds: float = 30.0
     reranker_max_retries: int = 3
+
+    # --- Private Drive RAG (zero-retention; connectors/google_drive/private_rag) ---
+    # Hard caps for one ephemeral query: at most this many Drive files and this
+    # many pages are read per request, all in memory, nothing persisted. The
+    # caps bound latency, provider cost and memory per request.
+    private_rag_max_files: int = 10
+    private_rag_max_pages: int = 100
+    # Embedding dimensions for the ephemeral index. There is no strategy row in
+    # private mode (a strategy is a *stored* embedding configuration, and
+    # nothing is stored), so the model's native dimension is a setting; the
+    # provider sheds the parameter if its deployment rejects it.
+    private_rag_embedding_dimensions: int = 2048
 
     @field_validator(
         "llm_extract_model",
