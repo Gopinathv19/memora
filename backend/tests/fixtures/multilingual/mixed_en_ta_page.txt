@@ -1,0 +1,9 @@
+TAX INVOICE / வரி விலைப்பட்டியல்
+Invoice Number: INV-2041
+Date of Issue: 2026-09-01
+Buyer: Globex Corporation, Chennai
+Seller: Acme Services, Coimbatore
+மொத்த தொகை / Total Amount: ₹12,400
+Payment Terms / விதிமுறைகள்: Net 30 days
+Description of Goods: நாற்பது பேலட்கள் (forty pallets) delivered in September.
+GSTIN: 33ABCDE1234F1Z5

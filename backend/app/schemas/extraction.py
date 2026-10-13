@@ -46,17 +46,31 @@ class PageProvenance(BaseModel):
     note: str | None = None
 
 
+class LanguageSpan(BaseModel):
+    """A language detected locally, with the unit range it covers."""
+
+    language: str
+    pages: list[int] = Field(default_factory=list, description="1-based unit numbers")
+
+
 class ExtractionResult(BaseModel):
     source_id: uuid.UUID
     document_type: str = "unknown"
     title: str | None = None
     language: str | None = None
+    # Locally detected languages with page ranges (Phase 4). `language`
+    # above stays the dominant language, as before.
+    languages: list[LanguageSpan] = Field(default_factory=list)
     summary: str = ""
     fields: list[ExtractedField] = Field(default_factory=list)
     tables: list[ExtractedTable] = Field(default_factory=list)
     pages: list[PageProvenance] = Field(default_factory=list)
     status: ExtractionStatus = ExtractionStatus.COMPLETED
     warnings: list[str] = Field(default_factory=list)
+    # Coverage (Phase 6): what was read vs skipped, never silent.
+    pages_read: int = 0
+    pages_skipped: int = 0
+    units_failed: int = 0
 
 
 # --- Requests -------------------------------------------------------------------
@@ -118,6 +132,9 @@ class ExtractionSummary(ORMModel):
     actor_id: uuid.UUID | None = None
     created_at: datetime
     finished_at: datetime | None = None
+    # Per-phase wall-clock timings in milliseconds (parse / read / windows /
+    # metadata / agent / total), when the run recorded them.
+    timings: dict[str, int] | None = None
 
 
 class ExtractionUsageRead(ORMModel):

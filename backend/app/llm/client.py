@@ -10,23 +10,39 @@ what tests replace with a fake so the suite never spends credits.
 
 import base64
 import json
+import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Protocol
 
 from app.core.config import Settings, get_settings
+from app.llm import limiter, retry
+from app.llm.retry import call_with_retry
 
 
 class LLMError(Exception):
-    """A model call failed. `usage` holds whatever the provider still billed."""
+    """A model call failed. `usage` holds whatever the provider still billed.
 
-    def __init__(self, message: str, usage: "LLMUsage | None" = None):
+    `category` (see app/llm/retry.py) tells the caller whether the failure is
+    retryable on the same model: a timeout is not -- the agent falls through
+    to the next model in its chain instead of paying for the same call twice.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        usage: "LLMUsage | None" = None,
+        category: str | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.usage = usage
+        self.category = category
 
 
 @dataclass
@@ -34,6 +50,9 @@ class LLMUsage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     latency_ms: int = 0
+    # Optional parameters a provider rejected (400) and the client shed --
+    # recorded so a slow call is explainable from the usage row alone.
+    shed_params: list[str] = field(default_factory=list)
 
     def __add__(self, other: "LLMUsage") -> "LLMUsage":
         return LLMUsage(
@@ -55,9 +74,24 @@ class LLMClient(Protocol):
         ...
 
     def read_image(
-        self, model: str, image: bytes, mime: str, prompt: str
+        self,
+        model: str,
+        image: bytes,
+        mime: str,
+        prompt: str,
+        *,
+        strict: bool = False,
+        max_tokens: int | None = None,
+        disable_thinking: bool | None = None,
+        timeout: float | None = None,
     ) -> tuple[str, LLMUsage]:
-        """Send one image with an instruction and return the model's text."""
+        """Send one image with an instruction and return the model's text.
+
+        `strict` asks for tighter decoding (no repetition, exact output):
+        used for the one retry after a reading fails the cleaning gate.
+        `max_tokens` scales the output budget to the page; `disable_thinking`
+        turns off the reasoning preamble for transcription-style calls.
+        """
         ...
 
 
@@ -145,8 +179,11 @@ class NvidiaLLMClient:
                         base_url=base_url,
                         api_key=api_key,
                         timeout=self.settings.llm_timeout_seconds,
-                        # The SDK retries 408/409/429/5xx with exponential backoff.
-                        max_retries=self.settings.llm_max_retries,
+                        # Retrying is Memora's own policy (app/llm/retry.py):
+                        # the SDK's backoff multiplied with the agent's
+                        # fallback chain, stacking timeouts into 10+ minute
+                        # runs. The SDK never retries.
+                        max_retries=self.settings.llm_sdk_max_retries,
                     )
         return self._clients[provider]
 
@@ -160,15 +197,33 @@ class NvidiaLLMClient:
 
         sdk = self._sdk(provider or self.provider)
         extras = dict(optional)
+        shed: list[str] = []
         while True:
             try:
-                return sdk.chat.completions.create(**kwargs, **extras)
+                # Retry policy (timeouts never retried, 429 honors
+                # Retry-After) is applied per call, in one place. The
+                # shared limiter caps in-flight calls per provider bucket.
+                with limiter.limited(provider or self.provider):
+                    response = call_with_retry(
+                        lambda: sdk.chat.completions.create(**kwargs, **extras),
+                        self.settings,
+                    )
+                if shed:
+                    # The call succeeded only after shedding: log it and
+                    # carry the names on the usage so it is recorded.
+                    log.warning(
+                        "provider rejected optional parameters; shed: %s", shed
+                    )
+                    response._memora_shed_params = shed  # carried to _usage
+                return response
             except openai.BadRequestError as exc:
                 if not extras:
-                    raise LLMError(f"provider rejected the request: {exc}") from exc
+                    raise LLMError(
+                        f"provider rejected the request: {exc}",
+                        category=retry.CLIENT_ERROR,
+                    ) from exc
+                shed.append(next(iter(extras)))
                 extras.pop(next(iter(extras)))
-            except openai.APIError as exc:
-                raise LLMError(f"{type(exc).__name__}: {exc}") from exc
 
     @staticmethod
     def _usage(response, started: float) -> LLMUsage:
@@ -177,6 +232,7 @@ class NvidiaLLMClient:
             prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
             completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
             latency_ms=int((time.monotonic() - started) * 1000),
+            shed_params=getattr(response, "_memora_shed_params", []) or [],
         )
 
     def chat_json(self, model: str, system: str, user: str) -> tuple[dict, LLMUsage]:
@@ -253,12 +309,37 @@ class NvidiaLLMClient:
         return text, usage
 
     def read_image(
-        self, model: str, image: bytes, mime: str, prompt: str
+        self,
+        model: str,
+        image: bytes,
+        mime: str,
+        prompt: str,
+        *,
+        strict: bool = False,
+        max_tokens: int | None = None,
+        disable_thinking: bool | None = None,
+        timeout: float | None = None,
     ) -> tuple[str, LLMUsage]:
         data_url = f"data:{mime};base64,{base64.b64encode(image).decode('ascii')}"
+        request_timeout = timeout or self.settings.llm_timeout_seconds
         image_part = {"type": "image_url", "image_url": {"url": data_url}}
         started = time.monotonic()
         provider = self.settings.llm_provider_for("vision")
+        # Stricter decoding for the post-cleaning-gate retry: no repetition,
+        # no thinking. Optional parameters are shed on a 400 (see _create).
+        strict_optional = (
+            {"frequency_penalty": 0.0, "presence_penalty": 0.0}
+            if strict
+            else {}
+        )
+        tokens = max_tokens or self.settings.llm_max_output_tokens
+        if disable_thinking is None:
+            disable_thinking = self.settings.vision_disable_thinking
+        thinking_optional = (
+            {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+            if disable_thinking
+            else {}
+        )
 
         if is_nemotron_parse(model):
             # Nemotron-Parse takes only the image and answers via a tool call.
@@ -270,6 +351,7 @@ class NvidiaLLMClient:
                 tools=[{"type": "function", "function": {"name": "markdown_no_bbox"}}],
                 temperature=0,
                 max_tokens=self.settings.llm_max_output_tokens,
+                timeout=request_timeout,
             )
             message = response.choices[0].message
             calls = getattr(message, "tool_calls", None) or []
@@ -280,7 +362,7 @@ class NvidiaLLMClient:
             )
         else:
             response = self._create(
-                {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}},
+                {**thinking_optional, **strict_optional},
                 provider,
                 model=model,
                 messages=[
@@ -290,7 +372,8 @@ class NvidiaLLMClient:
                     }
                 ],
                 temperature=0,
-                max_tokens=self.settings.llm_max_output_tokens,
+                max_tokens=tokens,
+                timeout=request_timeout,
             )
             text = clean_text(response.choices[0].message.content)
 

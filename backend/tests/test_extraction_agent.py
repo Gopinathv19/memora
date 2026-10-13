@@ -52,7 +52,10 @@ def test_each_difficulty_goes_to_its_model():
     image_calls = [c["model"] for c in client.calls if c["kind"] == "read_image"]
     # EASY: no call. MEDIUM: one vision call per picture. HARD: one layout call.
     assert sorted(image_calls) == sorted([VISION, VISION, LAYOUT])
-    [extract_call] = [c for c in client.calls if c["kind"] == "chat_json"]
+    extract_calls = [c for c in client.calls if c["kind"] == "chat_json"]
+    # Windowed extraction: one window call + one metadata call.
+    assert len(extract_calls) == 2
+    extract_call = extract_calls[0]
     assert extract_call["model"] == EXTRACT
 
     # The single extract call sees every unit, in order, with provenance markers.
@@ -70,7 +73,11 @@ def test_each_difficulty_goes_to_its_model():
         (3, ExtractionRoute.LAYOUT, LAYOUT),
     ]
     roles = sorted(u.role for u in output.usage)
-    assert roles == sorted([ModelRole.VISION, ModelRole.VISION, ModelRole.LAYOUT, ModelRole.EXTRACT])
+    # Windowed extraction: one window call + one metadata call, both EXTRACT.
+    assert roles == sorted(
+        [ModelRole.VISION, ModelRole.VISION, ModelRole.LAYOUT,
+         ModelRole.EXTRACT, ModelRole.EXTRACT]
+    )
 
 
 def test_model_output_is_validated_leniently():
@@ -94,7 +101,10 @@ def test_layout_failure_falls_back_to_vision_model():
     assert page3.model == VISION
     assert page3.status == "fallback"
     failed = [u for u in output.usage if u.status == "failed"]
-    assert [(u.role, u.model) for u in failed] == [(ModelRole.LAYOUT, LAYOUT)]
+    # The layout model is retried once before falling back, so its failure
+    # is recorded once per attempt.
+    assert all(u.role == ModelRole.LAYOUT and u.model == LAYOUT for u in failed)
+    assert failed
     assert output.result.status == ExtractionStatus.COMPLETED
 
 
@@ -144,7 +154,9 @@ def test_extract_model_failure_keeps_the_usage_it_cost():
 def test_instructions_reach_the_prompt_as_guidance():
     agent, client = _agent()
     agent.extract(_doc(), source_id=uuid.uuid4(), instructions="capture the policy number")
-    [call] = [c for c in client.calls if c["kind"] == "chat_json"]
+    calls = [c for c in client.calls if c["kind"] == "chat_json"]
+    assert calls  # window call(s) + metadata call
+    call = calls[0]
     assert "<user_guidance>\ncapture the policy number\n</user_guidance>" in call["user"]
 
 

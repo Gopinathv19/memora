@@ -89,7 +89,8 @@ def clean_tables(_environment):
             text(
                 "TRUNCATE chunk_embeddings, retrieval_chunks, semantic_blocks, document_units, "
                 "extraction_usage, source_graph_builds, source_extractions, sources, "
-                "subjects, actors, api_credentials, applications, tenants CASCADE"
+                "subjects, actors, api_credentials, applications, tenants, "
+                "reading_cache_entries, document_cache_entries CASCADE"
             )
         )
     yield
@@ -147,6 +148,42 @@ def fake_llm(client):
 # `falkordblite` is used if installed; otherwise graph tests are skipped. Each
 # test works under its own random graph prefix and drops its graphs after, so
 # a shared instance is never polluted.
+
+
+@pytest.fixture(autouse=True)
+def _fake_embedding_provider(monkeypatch):
+    """Never make a real embedding call from the test suite.
+
+    A successful extraction auto-chunks and auto-embeds, and the embedding
+    worker would otherwise hit the provider in backend/.env -- spending
+    credits and holding a DB transaction that deadlocks the next test's
+    TRUNCATE. The provider protocol is tiny, so the fake is tiny too.
+    """
+    from app.embeddings import provider as provider_module
+
+    class FakeEmbeddingProvider:
+        provider = "nvidia_nim"
+
+        def embed_documents(self, model, texts, dimensions):
+            return [[0.01] * dimensions for _ in texts], provider_module.EmbeddingUsage(
+                prompt_tokens=len(texts), total_tokens=len(texts), latency_ms=1
+            )
+
+        def embed_query(self, model, text, dimensions):
+            return [0.01] * dimensions, provider_module.EmbeddingUsage(
+                prompt_tokens=1, total_tokens=1, latency_ms=1
+            )
+
+    monkeypatch.setattr(
+        provider_module, "get_embedding_provider", lambda: FakeEmbeddingProvider()
+    )
+
+    # And never start the background worker: its daemon thread outlives the
+    # test, and its open transaction deadlocks the next test's TRUNCATE.
+    # Rows simply stay `pending`; no test asserts on embedding processing.
+    from app.services import embedding_service
+
+    monkeypatch.setattr(embedding_service, "kick_worker", lambda *a, **k: None)
 
 
 @pytest.fixture(autouse=True)

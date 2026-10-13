@@ -6,7 +6,9 @@ and table cells exactly in their XML, so those are read directly and only
 their embedded pictures need a model.
 """
 
+import hashlib
 import io
+import threading
 from pathlib import PurePath
 
 from app.core.config import Settings
@@ -16,7 +18,14 @@ from app.processing.document import (
     ReadingUnit,
     UnsupportedDocumentError,
 )
-from app.processing.triage import PageSignals, classify, junk_ratio, route_for
+from app.processing.langdetect import detect_language, looks_like_gibberish
+from app.processing.triage import (
+    PageSignals,
+    classify,
+    junk_ratio,
+    route_for,
+    unmapped_glyphs,
+)
 from app.schemas.enums import ExtractionMode, ExtractionRoute, PageDifficulty
 
 _MIME_FORMATS = {
@@ -120,6 +129,49 @@ def normalize_image(data: bytes, label: str) -> ImageBlob:
     return ImageBlob(out.getvalue(), "image/png", label)
 
 
+def _image_content_hash(blob: ImageBlob) -> str:
+    return hashlib.sha256(blob.data).hexdigest()
+
+
+def _is_decorative(
+    blob: ImageBlob,
+    settings: Settings,
+    seen_hashes: set[str],
+) -> bool:
+    """True for tiny, extreme-aspect or already-seen images: logos, rules,
+    repeated icons/headers. These are skipped before any vision call."""
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(blob.data))
+        width, height = img.size
+    except Exception:
+        return True  # undecodable: nothing to describe
+    if width * height < settings.vision_min_image_pixels:
+        return True
+    if max(width, height) / max(min(width, height), 1) > settings.vision_max_aspect_ratio:
+        return True
+    if settings.vision_skip_duplicate_images:
+        h = _image_content_hash(blob)
+        if h in seen_hashes:
+            return True
+        seen_hashes.add(h)
+    return False
+
+
+def filter_decorative_images(
+    blobs: list[ImageBlob], settings: Settings
+) -> tuple[list[ImageBlob], int]:
+    """Drop decorative images before the vision model sees them.
+
+    Returns (kept, skipped_count). Only kept images count against the
+    document's image budget.
+    """
+    seen: set[str] = set()
+    kept = [b for b in blobs if not _is_decorative(b, settings, seen)]
+    return kept, len(blobs) - len(kept)
+
+
 class _ImageBudget:
     """Caps how many pictures one document may send to the vision model."""
 
@@ -143,6 +195,84 @@ class _ImageBudget:
 
 
 # --- PDF ------------------------------------------------------------------------
+
+
+def _looks_indic_or_dense(text: str, signals: PageSignals) -> bool:
+    """Heuristic: Devanagari/Tamil codepoints, or a very dense text page."""
+    indic = sum(
+        1
+        for ch in text
+        if 0x0900 <= ord(ch) <= 0x097F or 0x0B80 <= ord(ch) <= 0x0BFF
+    )
+    if indic >= 20:
+        return True
+    return signals.text_chars > 4000
+
+
+def _assign_rendered(
+    unit: ReadingUnit,
+    img,
+    scale: float,
+    boxes,
+    settings: Settings,
+    budget: "_ImageBudget",
+    warnings: list[str],
+) -> None:
+    """Turn a rendered page image into the unit's page_image / images."""
+    if unit.route == ExtractionRoute.LAYOUT:
+        unit.page_image = ImageBlob(_png(img), "image/png", f"page {unit.index}")
+    else:
+        # Crop each picture out of the rendered page: no need to decode the
+        # PDF's own image streams and their filters.
+        crops = [
+            ImageBlob(
+                _png(
+                    img.crop(
+                        (
+                            int(im["x0"] * scale),
+                            int(im["top"] * scale),
+                            int(im["x1"] * scale),
+                            int(im["bottom"] * scale),
+                        )
+                    )
+                ),
+                "image/png",
+                f"picture on page {unit.index}",
+            )
+            for im in boxes
+        ]
+        kept, skipped = filter_decorative_images(crops, settings)
+        if skipped:
+            warnings.append(f"{skipped} decorative image(s) on page {unit.index} skipped")
+        unit.images = budget.take(kept)
+
+
+def _make_deferred_render(
+    unit: ReadingUnit,
+    rendered,
+    i: int,
+    long_side: int,
+    boxes,
+    settings: Settings,
+    budget: "_ImageBudget",
+    warnings: list[str],
+    render_lock: threading.Lock,
+):
+    """A closure the agent calls in its worker pool to render one page.
+
+    pdfium is not thread-safe on a single document: two workers rendering
+    pages of the same `PdfDocument` concurrently abort the process natively
+    (a hard crash, not an exception). The lock serializes the pdfium part
+    only -- PNG encoding and cropping still overlap across workers.
+    """
+
+    def render():
+        with render_lock:
+            img, scale = _render(rendered, i, long_side)
+        _assign_rendered(unit, img, scale, boxes, settings, budget, warnings)
+        return unit.page_image, unit.images
+
+    return render
 
 
 def _render(pdf, index: int, long_side: int):
@@ -171,6 +301,10 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
     except Exception as exc:  # pdfminer/pdfium raise a zoo of types
         raise UnsupportedDocumentError(f"PDF could not be opened: {exc}") from exc
 
+    deferred = settings.extraction_parallel_render
+    # One lock per document: pdfium renders of the same PdfDocument must
+    # not overlap (see _make_deferred_render).
+    render_lock = threading.Lock()
     try:
         total = len(plumber.pages)
         limit = min(total, settings.extraction_max_pages)
@@ -196,12 +330,30 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
                 table_count=tables,
                 ruled_lines=len(page.lines) + len(page.rects),
                 junk_ratio=junk_ratio(text),
+                unmapped_glyphs=unmapped_glyphs(text),
             )
             difficulty = (
                 PageDifficulty.HARD
                 if mode == ExtractionMode.DEEP
                 else classify(signals, settings)
             )
+            lang = detect_language(text)
+            # Plenty of local text but the language looks wrong (a broken
+            # Indic font rendered as Latin gibberish, or an unconfident
+            # script mix): the text layer is not trustworthy, promote it.
+            if (
+                settings.triage_lang_promotion_enabled
+                and difficulty != PageDifficulty.HARD
+                and signals.text_chars >= settings.triage_min_text_chars
+                and (
+                    looks_like_gibberish(text)
+                    or (
+                        lang.script is not None
+                        and lang.confidence < settings.triage_lang_min_confidence
+                    )
+                )
+            ):
+                difficulty = PageDifficulty.HARD
             unit = ReadingUnit(
                 index=i + 1,
                 kind="page",
@@ -209,32 +361,30 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
                 difficulty=difficulty,
                 route=route_for(difficulty),
                 signals=signals.as_dict(),
+                language=lang.language,
+                script=lang.script,
+                lang_confidence=lang.confidence,
             )
             if unit.route != ExtractionRoute.TEXT:
-                img, scale = _render(rendered, i, settings.extraction_render_long_side)
-                if unit.route == ExtractionRoute.LAYOUT:
-                    unit.page_image = ImageBlob(_png(img), "image/png", f"page {i + 1}")
+                long_side = settings.extraction_render_long_side
+                # Optional higher resolution for Indic-script or dense pages.
+                # Off by default; current behaviour is preserved.
+                if (
+                    settings.extraction_render_high_res_enabled
+                    and _looks_indic_or_dense(text, signals)
+                ):
+                    long_side = settings.extraction_render_long_side_indic
+
+                if settings.extraction_parallel_render:
+                    # Defer rendering to the agent's worker pool: it overlaps
+                    # with model calls instead of blocking this loop.
+                    unit.render_fn = _make_deferred_render(
+                        unit, rendered, i, long_side, boxes, settings,
+                        budget, warnings, render_lock,
+                    )
                 else:
-                    # Crop each picture out of the rendered page: no need to
-                    # decode the PDF's own image streams and their filters.
-                    crops = [
-                        ImageBlob(
-                            _png(
-                                img.crop(
-                                    (
-                                        int(im["x0"] * scale),
-                                        int(im["top"] * scale),
-                                        int(im["x1"] * scale),
-                                        int(im["bottom"] * scale),
-                                    )
-                                )
-                            ),
-                            "image/png",
-                            f"picture on page {i + 1}",
-                        )
-                        for im in boxes
-                    ]
-                    unit.images = budget.take(crops)
+                    img, scale = _render(rendered, i, long_side)
+                    _assign_rendered(unit, img, scale, boxes, settings, budget, warnings)
             units.append(unit)
         skipped = total - limit
         if skipped:
@@ -243,9 +393,15 @@ def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> Processe
             )
     finally:
         plumber.close()
-        rendered.close()
+        if not deferred:
+            rendered.close()
     budget.finish()
-    return ProcessedDocument("pdf", units, skipped_units=skipped, warnings=warnings)
+    doc = ProcessedDocument("pdf", units, skipped_units=skipped, warnings=warnings)
+    if deferred:
+        # Deferred renders still need the pdfium document; close it once the
+        # agent has finished reading (it calls finalize()).
+        doc.finalize = rendered.close
+    return doc
 
 
 # --- Office formats ---------------------------------------------------------------
@@ -286,7 +442,11 @@ def parse_docx(data: bytes, settings: Settings) -> ProcessedDocument:
         if "image" in rel.reltype
     ]
     budget = _ImageBudget(settings.extraction_max_images, warnings)
-    images = budget.take(_readable(pictures))
+    readable = _readable(pictures)
+    kept, skipped = filter_decorative_images(readable, settings)
+    if skipped:
+        warnings.append(f"{skipped} decorative image(s) skipped")
+    images = budget.take(kept)
     budget.finish()
     unit = ReadingUnit(
         index=1,
@@ -350,7 +510,11 @@ def parse_pptx(data: bytes, settings: Settings) -> ProcessedDocument:
             notes = slide.notes_slide.notes_text_frame.text.strip()
             if notes:
                 blocks.append(f"Speaker notes: {notes}")
-        images = budget.take(_readable(pictures))
+        readable = _readable(pictures)
+        kept, skipped = filter_decorative_images(readable, settings)
+        if skipped:
+            warnings.append(f"{skipped} decorative image(s) on slide {number} skipped")
+        images = budget.take(kept)
         units.append(
             ReadingUnit(
                 index=number,

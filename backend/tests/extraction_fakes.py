@@ -43,8 +43,20 @@ class FakeLLMClient:
             raise LLMError("extract model down", usage=LLMUsage(10, 0, 5))
         return dict(self.extraction), LLMUsage(prompt_tokens=1000, completion_tokens=200, latency_ms=40)
 
-    def read_image(self, model, image, mime, prompt):
-        self.calls.append({"kind": "read_image", "model": model, "mime": mime, "prompt": prompt})
+    def read_image(
+        self, model, image, mime, prompt, *, strict=False,
+        max_tokens=None, disable_thinking=None, timeout=None,
+    ):
+        self.calls.append(
+            {
+                "kind": "read_image",
+                "model": model,
+                "mime": mime,
+                "prompt": prompt,
+                "strict": strict,
+                "max_tokens": max_tokens,
+            }
+        )
         if model in self.fail_models:
             raise LLMError(f"{model} unavailable")
         return f"{self.image_text} by {model}", LLMUsage(prompt_tokens=300, completion_tokens=50, latency_ms=20)

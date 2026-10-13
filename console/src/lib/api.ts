@@ -471,13 +471,18 @@ export const api = {
 
   retrieval: {
     /** Ask Memora a question; get a grounded answer + supporting chunks. */
-    ask: (query: string, scope?: { subjectId?: string; sourceId?: string }) =>
+    ask: (
+      query: string,
+      scope?: { subjectId?: string; sourceId?: string },
+      retrievalMode?: "hybrid" | "dense",
+    ) =>
       request<QueryResponse>("/query", {
         method: "POST",
         body: json({
           query,
           subject_id: scope?.subjectId,
           source_id: scope?.sourceId,
+          retrieval_mode: retrievalMode,
         }),
       }),
   },

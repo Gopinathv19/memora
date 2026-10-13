@@ -70,9 +70,12 @@ def test_upload_with_extract_runs_version_one(client, fake_llm):
         (1, "easy", "text"),
         (2, "hard", "layout"),
     ]
-    # One layout call + one extract call, both in the ledger.
-    assert sorted(u["role"] for u in run["usage"]) == ["extract", "layout"]
-    assert run["prompt_tokens"] == 1300 and run["completion_tokens"] == 250
+    # One layout call + window and metadata extract calls, in the ledger.
+    assert sorted(u["role"] for u in run["usage"]) == [
+        "extract", "extract", "layout",
+    ]
+    # Window + metadata extract calls add their fake usage to the totals.
+    assert run["prompt_tokens"] == 2300 and run["completion_tokens"] == 450
     assert run["cost_usd"] == 0.0  # build.nvidia.com is free
     assert run["triggered_by_kind"] == "user"
     assert run["triggered_by_user_id"] is not None
@@ -102,7 +105,10 @@ def test_reextract_adds_a_version_and_keeps_the_old_one(client, fake_llm):
     assert v2["instructions"] == "capture the premium table"
     # Deep mode: both pages went to the layout model.
     assert {p["route"] for p in v2["result"]["pages"]} == {"layout"}
-    assert "capture the premium table" in fake_llm.calls[-1]["user"]
+    # The window extract call carries the instructions (the metadata call
+    # that follows it does not).
+    extract_calls = [c for c in fake_llm.calls if c["kind"] == "chat_json"]
+    assert "capture the premium table" in extract_calls[-2]["user"]
 
     v1 = client.get(f"/api/v1/sources/{source_id}/extractions/1").json()
     assert v1["mode"] == "standard" and v1["result"]["pages"][0]["route"] == "text"
@@ -215,7 +221,8 @@ def test_credential_runs_are_attributed_and_scoped(client, fake_llm):
 
     report = client.get("/api/v1/usage/extractions", headers=auth).json()
     assert report["totals"]["runs"] == 1
-    assert report["totals"]["calls"] == 2
+    # Windowed extraction: layout + window extract + metadata extract.
+    assert report["totals"]["calls"] == 3
     [trigger] = report["by_trigger"]
     assert trigger["key"].startswith("credential:") and trigger["label"] == "ci"
     assert {g["label"] for g in report["by_model"]} == {"layout", "extract"}
@@ -250,9 +257,10 @@ def test_nebius_runs_are_priced_from_the_operator_price_list(
         pricing.get_price_list.cache_clear()
 
     assert run["provider"] == "nebius"
-    # 1000 prompt tokens at $1/M + 200 completion tokens at $2/M; the layout
-    # model has no price, so it is recorded at $0 with no rate snapshot.
-    assert run["cost_usd"] == 0.0014
+    # Two extract calls (window + metadata), each 1000 prompt tokens at $1/M
+    # + 200 completion tokens at $2/M; the layout model has no price, so it
+    # is recorded at $0 with no rate snapshot.
+    assert run["cost_usd"] == 0.0028
     calls = {u["role"]: u for u in run["usage"]}
     assert calls["extract"]["price"]["input_per_1m"] == 1.0
     assert calls["extract"]["price"]["effective_from"] == "2026-01-01"
@@ -271,6 +279,22 @@ def test_deleting_a_source_removes_its_extractions(client, fake_llm):
     with SessionLocal() as db:
         assert db.execute(select(func.count()).select_from(SourceExtraction)).scalar_one() == 0
         assert db.execute(select(func.count()).select_from(ExtractionUsage)).scalar_one() == 0
+
+
+def test_run_records_phase_timings(client, fake_llm):
+    """A completed run stores where it spent its time (timings column)."""
+    _, _, subject_id = _setup(client)
+    source_id = _upload(client, subject_id, extract=True).json()["id"]
+
+    run = client.get(f"/api/v1/sources/{source_id}/extractions/latest").json()
+    assert run["status"] == "completed"
+    timings = run["timings"]
+    assert timings is not None
+    # Every phase the service and agent record, all positive.
+    for key in ("parse_ms", "read_ms", "windows_ms", "metadata_ms", "agent_ms", "total_ms"):
+        assert timings.get(key, 0) >= 0, f"missing/invalid timing: {key}"
+    # The total covers the whole run, so it is at least the agent's part.
+    assert timings["total_ms"] >= timings["agent_ms"]
 
 
 def test_interrupted_runs_are_failed_at_startup(client, fake_llm):

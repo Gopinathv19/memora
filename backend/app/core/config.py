@@ -67,12 +67,30 @@ class Settings(BaseSettings):
     llm_answer_model: str = "nvidia/nemotron-3-super-120b-a12b"
 
     llm_timeout_seconds: float = 120.0
-    llm_max_retries: int = 3
+    # The SDK never retries on its own (see app/llm/retry.py): Memora's
+    # policy is the single place retrying happens, so it cannot stack with
+    # the agent's per-page fallback chain.
+    llm_sdk_max_retries: int = 0
+    # Our own policy: 429/5xx retried at most this many times per call,
+    # honoring Retry-After (capped) or capped exponential backoff.
+    llm_retry_max_attempts: int = 2
+    llm_retry_backoff_cap_seconds: float = 8.0
+    llm_retry_after_cap_seconds: float = 30.0
+    # One process-wide cap on in-flight model calls per provider bucket
+    # (app/llm/limiter.py), shared by the extraction agent, the window
+    # pool, the graph pipeline and the embedding worker.
+    llm_max_concurrent_calls_per_provider: int = 8
     llm_max_output_tokens: int = 8192
     # The operator's versioned price list (see app/core/pricing.py). A file in
     # the backend, not a setting any console user or credential can reach.
     pricing_file: str = str(Path(__file__).resolve().parents[2] / "pricing.json")
 
+    # Deadlines: a page's whole fallback chain (layout -> vision -> local)
+    # gets at most this long, and a run gets at most a wall-clock budget.
+    # On budget exhaustion the remaining units use their local text and the
+    # run completes as PARTIAL with a warning -- never a silent failure.
+    extraction_page_deadline_seconds: float = 120.0
+    extraction_run_budget_seconds: float = 300.0
     extraction_max_pages: int = 30
     extraction_max_images: int = 20
     extraction_concurrency: int = 4
@@ -80,6 +98,77 @@ class Settings(BaseSettings):
     # Long side, in pixels, of a rendered PDF page. 1800 keeps a Letter/A4 page
     # inside Nemotron-Parse's 1024x1280 .. 1648x2048 window.
     extraction_render_long_side: int = 1800
+
+    # --- Reading cleaning (app/processing/cleaning.py) --------------------------
+    # A reading whose cleaning removed more than this share of its characters is
+    # retried once with stricter decoding, then falls through the fallback chain.
+    cleaning_damage_ratio_threshold: float = 0.02
+    # zlib compressed/original below this (on long enough text) flags a model loop.
+    cleaning_loop_compression_min: float = 0.10
+    cleaning_loop_min_chars: int = 200
+    # A line repeating as header/footer on more than this share of pages
+    # (digits masked) is dropped from every page; one copy is kept as metadata.
+    cleaning_header_footer_repeat_ratio: float = 0.5
+    cleaning_header_footer_min_pages: int = 3
+
+    # --- Vision / layout model behaviour ----------------------------------------
+    # Cap on max_tokens for a per-page transcription/description call; the
+    # actual value is scaled to the page's local text length.
+    vision_max_tokens_cap: int = 8192
+    # Disable the reasoning preamble for transcription and simple image
+    # descriptions (kept available for charts/diagrams via the prompt).
+    vision_disable_thinking: bool = True
+    # Decorative-image filter: skip images smaller than this many pixels,
+    # or with an aspect ratio beyond vision_max_aspect_ratio, or whose
+    # content hash was already seen (repeated logos/icons/headers).
+    vision_min_image_pixels: int = 4096  # 64x64
+    vision_max_aspect_ratio: float = 8.0
+    vision_skip_duplicate_images: bool = True
+    # Higher render resolution for pages detected as Indic-script or dense.
+    # Off by default: current behaviour is preserved unless turned on.
+    extraction_render_high_res_enabled: bool = False
+    extraction_render_long_side_indic: int = 2200
+    # Optional top/bottom half rendering with overlap, merged afterwards.
+    extraction_render_split_halves: bool = False
+    extraction_render_half_overlap_px: int = 120
+    # Optional tesseract OCR fallback (hin/tam/eng) when layout and vision
+    # both fail. Skipped gracefully when tesseract is not installed.
+    tesseract_fallback_enabled: bool = False
+
+    # --- Speed (Phase 3) ----------------------------------------------------------
+    # Render PDF pages in the agent's worker pool (overlapping with model
+    # calls) instead of the sequential parse loop.
+    extraction_parallel_render: bool = True
+    # Layout-model call timeout and retry count before falling back.
+    llm_layout_timeout_seconds: float = 60.0
+    llm_layout_retries: int = 1
+    # Upper bound for extraction_concurrency (429 backoff is handled by the
+    # SDK's retry policy; this caps how hard we push).
+    extraction_concurrency_max: int = 12
+    # In-process cache of successful, validated readings, keyed by
+    # sha256(image bytes) + model + prompt version + render settings.
+    reading_cache_enabled: bool = True
+    reading_cache_max_entries: int = 256
+    # Back the in-memory LRU with the database (reading_cache_entries), so
+    # a validated reading survives restarts and eviction.
+    reading_cache_persistent: bool = True
+    # Whole-run cache: the same file bytes under the same pipeline version,
+    # mode and instructions reuse the stored result (document_cache_entries).
+    document_cache_enabled: bool = True
+
+    # --- Multilingual (Phase 4) ---------------------------------------------------
+    # Promote a page to HARD/LAYOUT when its local text is plentiful but
+    # language detection is unconfident, or the text looks like Latin
+    # gibberish from a broken Indic font.
+    triage_lang_min_confidence: float = 0.55
+    triage_lang_promotion_enabled: bool = True
+
+    # --- Windowed extraction (Phase 6) --------------------------------------------
+    # Windows of whole units instead of one truncated 200k-char call.
+    extraction_window_chars: int = 18_000
+    extraction_window_overlap_units: int = 1
+    # One repair retry per window whose JSON is malformed.
+    extraction_window_repair_retries: int = 1
 
     # Page triage thresholds (EASY / MEDIUM / HARD).
     triage_min_text_chars: int = 200
@@ -122,6 +211,18 @@ class Settings(BaseSettings):
     # Auto-chunk after a successful extraction. Can be disabled to chunk
     # only on explicit request (POST /sources/{id}/rechunk).
     chunk_on_extract: bool = True
+
+    # --- Chunk quality / dedupe (Phase 5) ---------------------------------------
+    # Quality gate before embedding. A chunk failing any check is reported
+    # and dropped rather than polluting the vector index.
+    chunk_min_chars: int = 40
+    chunk_min_unique_token_ratio: float = 0.3
+    chunk_min_compression_ratio: float = 0.15
+    # In-document dedupe: exact (normalized hash) and near-duplicate.
+    chunk_dedupe_enabled: bool = True
+    chunk_near_dup_threshold: float = 0.95
+    # Selective chunk overlap, at most this share of the target size.
+    chunk_overlap_ratio: float = 0.0  # 0 = off, current behaviour
 
     # --- Embeddings (docs/embeddings.md) ---------------------------------------
     # The provider is a label resolved by app/embeddings/providers.py; the

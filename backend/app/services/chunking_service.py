@@ -20,6 +20,7 @@ from app.chunking import (
     chunk_semantic_block,
     parse_readings,
 )
+from app.chunking.quality import apply_quality
 from app.chunking.representation import build_search_text
 from app.chunking.structure import assign_section_paths, detect_numbered_headings
 from app.core.config import get_settings
@@ -110,8 +111,24 @@ def chunk_extraction(
         unit_id_map.append(unit.id)
 
     # --- Persist semantic_blocks + retrieval_chunks ---------------------------
+    # Phase 5: chunk from the cleaned text, then apply the quality gate and
+    # dedupe before anything is persisted or embedded.
+    quality_warnings: list[str] = []
+    all_chunks: list[tuple[SemanticBlock, list]] = []
+    for block in blocks:
+        chunk_list = chunk_semantic_block(block, settings)
+        all_chunks.append((block, chunk_list))
+    flat = [c for _, cs in all_chunks for c in cs]
+    flat = apply_quality(flat, settings, quality_warnings)
+    for note in quality_warnings:
+        log.info("chunk quality: %s", note)
+
     global_chunk_index = 0
-    for block_position, block in enumerate(blocks):
+    kept_ids = {id(c) for c in flat}
+    for block_position, (block, chunk_list) in enumerate(all_chunks):
+        chunk_list = [c for c in chunk_list if id(c) in kept_ids]
+        if not chunk_list:
+            continue
         block_unit_ids = [unit_id_map[i] for i in block.unit_indices if i < len(unit_id_map)]
         semantic_block = SemanticBlock(
             extraction_id=extraction.id,
@@ -130,7 +147,6 @@ def chunk_extraction(
         db.add(semantic_block)
         db.flush()
 
-        chunk_list = chunk_semantic_block(block, settings)
         for c in chunk_list:
             chunk_unit_ids = [
                 str(unit_id_map[i])

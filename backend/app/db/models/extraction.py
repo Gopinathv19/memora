@@ -112,6 +112,10 @@ class SourceExtraction(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     # transcribed text, route, model and status. The source material chunking
     # derives from, preserved so chunks can be regenerated without re-extracting.
     readings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Per-phase wall-clock timings of the run, in milliseconds: parse, read,
+    # windows, metadata, agent, chunk, total. Written as the run progresses, so
+    # even a failed run keeps what it measured. NULL on runs that predate it.
+    timings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -214,5 +218,8 @@ class ExtractionUsage(UUIDPrimaryKey, TimestampCreated, TriggeredBy, Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # e.g. "shed optional parameters: extra_body" -- when a provider
+    # rejected a parameter (400) and the client retried without it.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     extraction: Mapped["SourceExtraction"] = relationship()

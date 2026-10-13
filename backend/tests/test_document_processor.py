@@ -33,6 +33,10 @@ def test_table_page_is_hard_and_rendered_for_the_layout_model(processor):
     assert unit.signals["table_count"] >= 1
     assert unit.difficulty == PageDifficulty.HARD
     assert unit.route == ExtractionRoute.LAYOUT
+    # Rendering is deferred to the agent's worker pool by default; resolve it
+    # here to check the rendered bytes.
+    if unit.page_image is None and unit.render_fn is not None:
+        unit.render_fn()
     assert unit.page_image.mime == "image/png"
 
     from PIL import Image
@@ -48,7 +52,7 @@ def test_scanned_page_without_text_is_hard(processor):
     [unit] = doc.units
     assert unit.signals["text_chars"] == 0
     assert unit.difficulty == PageDifficulty.HARD
-    assert unit.page_image is not None
+    assert unit.page_image is not None or unit.render_fn is not None
 
 
 def test_mixed_pdf_is_triaged_page_by_page(processor):
@@ -67,7 +71,9 @@ def test_deep_mode_sends_every_page_to_layout(processor):
         make_pdf([text_page(LOREM), text_page(LOREM)]), PDF, "a.pdf", ExtractionMode.DEEP
     )
     assert {u.route for u in doc.units} == {ExtractionRoute.LAYOUT}
-    assert all(u.page_image is not None for u in doc.units)
+    # With parallel rendering on, rendering is deferred to the agent's worker
+    # pool: the unit carries a render_fn instead of the bytes here.
+    assert all(u.render_fn is not None or u.page_image is not None for u in doc.units)
 
 
 def test_page_cap_is_recorded_not_silent():
@@ -192,6 +198,8 @@ def _signals(**overrides):
         ({"table_count": 1}, PageDifficulty.HARD),
         ({"ruled_lines": 12}, PageDifficulty.HARD),
         ({"junk_ratio": 0.3}, PageDifficulty.HARD),
+        # One unmapped glyph is below the ratio but may be a lost ID digit.
+        ({"junk_ratio": 0.01, "unmapped_glyphs": 1}, PageDifficulty.HARD),
         ({"text_chars": 0, "image_count": 1, "image_ratio": 0.1}, PageDifficulty.HARD),
         ({"image_count": 5, "image_ratio": 0.1}, PageDifficulty.HARD),
         ({"text_chars": 0}, PageDifficulty.EASY),  # a blank page

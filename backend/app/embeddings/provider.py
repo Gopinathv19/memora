@@ -21,6 +21,8 @@ from functools import lru_cache
 from typing import Protocol
 
 from app.core.config import Settings, get_settings
+from app.llm import limiter
+from app.llm.retry import call_with_retry
 
 
 class EmbeddingProviderError(Exception):
@@ -85,7 +87,9 @@ class NIMEmbeddingProvider:
                         base_url=self.settings.nvidia_nim_base_url,
                         api_key=self.settings.nvidia_api_key,
                         timeout=self.settings.llm_timeout_seconds,
-                        max_retries=self.settings.embedding_max_retries,
+                        # The SDK never retries; Memora's policy does
+                        # (app/llm/retry.py), so retries cannot stack.
+                        max_retries=self.settings.llm_sdk_max_retries,
                     )
         return self._client
 
@@ -94,13 +98,20 @@ class NIMEmbeddingProvider:
 
         started = time.monotonic()
         try:
-            response = self._sdk().embeddings.create(
-                model=model,
-                input=texts,
-                # Some NIM deployments accept `dimensions`; some reject it. It
-                # is optional, so shed it on a 400 like the LLM client does.
-                dimensions=dimensions,
-            )
+            # The same shared limiter as every other model call: the NIM
+            # bucket shares build-nvidia when it points there.
+            with limiter.limited(self.provider):
+                response = call_with_retry(
+                    lambda: self._sdk().embeddings.create(
+                        model=model,
+                        input=texts,
+                        # Some NIM deployments accept `dimensions`; some
+                        # reject it. It is optional, so shed it on a 400
+                        # like the LLM client does.
+                        dimensions=dimensions,
+                    ),
+                    self.settings,
+                )
         except openai.BadRequestError as exc:
             # Retry once without `dimensions` -- the model's native dimension
             # is what the strategy declares anyway.

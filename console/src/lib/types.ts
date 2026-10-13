@@ -514,6 +514,17 @@ export interface RetrievalTrace {
   mmr_candidates: number;
   final_chunks: number;
   reranker_used: boolean;
+  /** Hybrid-retrieval trace. Zeroes / false when the lexical branch is off. */
+  dense_candidate_count: number;
+  lexical_candidate_count: number;
+  fused_candidate_count: number;
+  /** The dense ∩ lexical intersection: high overlap means the lexical branch adds little. */
+  overlap_candidate_count: number;
+  mmr_candidate_count: number;
+  reranked_candidate_count: number;
+  final_candidate_count: number;
+  lexical_enabled: boolean;
+  fusion_method: string;
 }
 
 export interface QueryUsage {

@@ -14,7 +14,9 @@ from app.core.config import Settings
 from app.schemas.enums import ExtractionRoute, PageDifficulty
 
 # pdfminer writes "(cid:123)" for glyphs whose font has no Unicode mapping.
+# Tokenizer artifacts (<unk>, <pad>) and U+FFFD are junk too.
 _CID = re.compile(r"\(cid:\d+\)")
+_UNK = re.compile(r"<unk>|<pad>|</s>", re.IGNORECASE)
 
 
 @dataclass
@@ -25,6 +27,9 @@ class PageSignals:
     table_count: int
     ruled_lines: int
     junk_ratio: float
+    # Count of unmapped "(cid:N)" glyphs. Even one can be a lost digit of an
+    # ID number, which a page-level ratio is too coarse to notice.
+    unmapped_glyphs: int = 0
 
     def as_dict(self) -> dict:
         return {k: round(v, 3) if isinstance(v, float) else v for k, v in asdict(self).items()}
@@ -35,11 +40,17 @@ def junk_ratio(text: str) -> float:
     if not text:
         return 0.0
     junk = sum(len(m) for m in _CID.findall(text))
-    stripped = _CID.sub("", text)
+    junk += sum(len(m) for m in _UNK.findall(text))
+    stripped = _CID.sub("", _UNK.sub("", text))
     junk += sum(
-        1 for ch in stripped if ch == "�" or (ord(ch) < 32 and ch not in "\n\r\t")
+        1 for ch in stripped if ch == "\ufffd" or (ord(ch) < 32 and ch not in "\n\r\t")
     )
     return junk / max(len(text), 1)
+
+
+def unmapped_glyphs(text: str) -> int:
+    """Number of "(cid:N)" glyphs: characters the local text layer lost."""
+    return len(_CID.findall(text or ""))
 
 
 def classify(signals: PageSignals, settings: Settings) -> PageDifficulty:
@@ -50,6 +61,8 @@ def classify(signals: PageSignals, settings: Settings) -> PageDifficulty:
         return PageDifficulty.EASY
     if signals.junk_ratio > settings.triage_max_junk_ratio:
         return PageDifficulty.HARD  # broken font/encoding: the text is not trustworthy
+    if signals.unmapped_glyphs > 0:
+        return PageDifficulty.HARD  # some glyphs have no text: read the pixels
     if signals.table_count > 0 or signals.ruled_lines >= settings.triage_min_ruled_lines:
         return PageDifficulty.HARD  # a table or grid
     if signals.image_ratio >= settings.triage_image_ratio:

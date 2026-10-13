@@ -7,7 +7,9 @@ and executed afterwards in a FastAPI background task (`run_extraction`, which
 opens its own session because the request's is gone by then).
 """
 
+import hashlib
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -23,6 +25,7 @@ from app.db.models import (
     Actor,
     ApiCredential,
     Application,
+    DocumentCacheEntry,
     ExtractionUsage,
     Source,
     SourceExtraction,
@@ -147,11 +150,34 @@ def _record_usage(db: Session, extraction: SourceExtraction, records: list[Usage
                 latency_ms=record.latency_ms,
                 status=record.status,
                 error=record.error,
+                notes=getattr(record, "notes", None),
             )
         )
         extraction.prompt_tokens += record.prompt_tokens
         extraction.completion_tokens += record.completion_tokens
         extraction.cost_usd = round(extraction.cost_usd + cost, 6)
+
+
+# The pipeline version for the document cache: bump when anything that
+# changes an extraction's output (prompts, models, cleaning, chunking of
+# the reading phase) changes, so old cache entries are never reused.
+PIPELINE_VERSION = "1"
+
+_DOCUMENT_CACHE_KEY_VERSION = "memora-doc-cache-1"
+
+
+def _document_cache_key(
+    data: bytes, mode: str, instructions: str | None
+) -> str:
+    digest = hashlib.sha256()
+    digest.update(_DOCUMENT_CACHE_KEY_VERSION.encode("ascii"))
+    digest.update(hashlib.sha256(data).digest())
+    digest.update(PIPELINE_VERSION.encode("utf-8"))
+    digest.update(mode.encode("utf-8"))
+    digest.update(
+        hashlib.sha256((instructions or "").encode("utf-8")).digest()
+    )
+    return digest.hexdigest()
 
 
 def run_extraction(
@@ -170,16 +196,42 @@ def run_extraction(
         if source is None:
             return
         usage: list[UsageRecord] = []
+        timings: dict[str, int] = {}
+        run_started = time.monotonic()
         try:
             with storage.open(source.storage_uri) as stream:
                 data = stream.read()
+
+            # Document-level cache: the same file bytes under the same
+            # pipeline version, mode and instructions reuse the stored
+            # result -- no parse, no model call, no cost.
+            cache_key = None
+            if get_settings().document_cache_enabled:
+                cache_key = _document_cache_key(
+                    data, extraction.mode, extraction.instructions
+                )
+                cached = db.get(DocumentCacheEntry, cache_key)
+                if cached is not None:
+                    extraction.result = cached.result
+                    extraction.content = cached.content
+                    extraction.readings = cached.readings
+                    extraction.status = cached.result.get("status") or (
+                        ExtractionStatus.COMPLETED.value
+                    )
+                    source.status = SourceStatus.COMPLETED.value
+                    timings["cache_ms"] = 0
+                    raise _DocumentCacheHit()
+
+            parse_started = time.monotonic()
             document = (processor or DocumentProcessor()).process(
                 data, source.mime_type, source.filename, ExtractionMode(extraction.mode)
             )
+            timings["parse_ms"] = int((time.monotonic() - parse_started) * 1000)
             output = agent.extract(
                 document, source_id=source.id, instructions=extraction.instructions
             )
             usage = output.usage
+            timings.update(output.timings)
             extraction.result = output.result.model_dump(mode="json")
             extraction.content = output.content
             extraction.readings = [
@@ -187,16 +239,44 @@ def run_extraction(
             ] if output.readings else None
             extraction.status = output.result.status.value
             source.status = SourceStatus.COMPLETED.value
+
+            # Store the run's output in the document cache for the next
+            # identical run. Only COMPLETED runs are cached: a PARTIAL run
+            # (deadlines, failed pages) should re-run, not be reused.
+            if (
+                cache_key is not None
+                and extraction.status == ExtractionStatus.COMPLETED.value
+            ):
+                try:
+                    db.merge(
+                        DocumentCacheEntry(
+                            key=cache_key,
+                            result=extraction.result,
+                            content=extraction.content,
+                            readings=extraction.readings,
+                        )
+                    )
+                except Exception:
+                    db.rollback()
+                    log.exception("document cache write failed")
+        except _DocumentCacheHit:
+            pass
         except (ExtractionFailed, UnsupportedDocumentError, MemoraError) as exc:
             usage = getattr(exc, "usage", [])
             extraction.status = ExtractionStatus.FAILED.value
-            extraction.error = getattr(exc, "message", None) or str(exc)
+            extraction.error = _failure_reason(
+                "extraction", getattr(exc, "message", None) or str(exc)
+            )
             source.status = SourceStatus.FAILED.value
         except Exception as exc:  # anything unexpected still ends the run cleanly
             log.exception("extraction %s crashed", extraction_id)
             extraction.status = ExtractionStatus.FAILED.value
-            extraction.error = f"Internal error: {type(exc).__name__}: {exc}"[:2000]
+            extraction.error = _failure_reason(
+                "exception", f"{type(exc).__name__}: {exc}"
+            )[:2000]
             source.status = SourceStatus.FAILED.value
+        timings["total_ms"] = int((time.monotonic() - run_started) * 1000)
+        extraction.timings = timings
         _record_usage(db, extraction, usage)
         extraction.finished_at = datetime.now(UTC)
         db.commit()
@@ -251,6 +331,20 @@ def run_extraction(
         db.close()
 
 
+class _DocumentCacheHit(Exception):
+    """Internal control flow: the document cache answered this run."""
+
+
+def _failure_reason(kind: str, detail: str) -> str:
+    """A categorized, greppable failure reason: `timeout: ...`,
+    `interrupted: ...`, `exception: ...`, `extraction: ...`."""
+    detail = (detail or "").strip()
+    # Already carries a category (e.g. from the retry wrapper).
+    if detail.startswith(("timeout:", "interrupted:", "exception:", "extraction:")):
+        return detail[:2000]
+    return f"{kind}: {detail}"[:2000]
+
+
 def _mark_failed(extraction_id: uuid.UUID, message: str) -> None:
     db = SessionLocal()
     try:
@@ -258,7 +352,7 @@ def _mark_failed(extraction_id: uuid.UUID, message: str) -> None:
         if extraction is None:
             return
         extraction.status = ExtractionStatus.FAILED.value
-        extraction.error = message
+        extraction.error = _failure_reason("exception", message)
         extraction.finished_at = datetime.now(UTC)
         source = db.get(Source, extraction.source_id)
         if source is not None:
@@ -281,7 +375,9 @@ def fail_interrupted_runs(db: Session) -> int:
     ).scalars().all()
     for extraction in runs:
         extraction.status = ExtractionStatus.FAILED.value
-        extraction.error = "Interrupted: the server restarted during this run"
+        extraction.error = (
+            "interrupted: the server restarted during this run"
+        )
         extraction.finished_at = datetime.now(UTC)
         source = db.get(Source, extraction.source_id)
         if source is not None and source.status == SourceStatus.PROCESSING.value:

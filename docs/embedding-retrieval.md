@@ -17,7 +17,7 @@ INGESTION (per source, runs in the background)
   chunks ──► embedding model ──► vectors in PostgreSQL (pgvector, HNSW index)
 
 QUERY (per question, synchronous)
-  question ──► vector search ──► diversify ──► rerank ──► grounded answer
+  question ──► dense + lexical search ──► RRF fusion ──► diversify ──► rerank ──► grounded answer
 ```
 
 Embedding turns each chunk into a vector — a long list of numbers that
@@ -88,17 +88,33 @@ weakness of the one before it:
 question
   │ 1. embed the question (same strategy as the stored vectors)
   ▼
-HNSW vector search ──► top 50 candidates        fast, approximate, broad
+Dense HNSW search ────► top 40 candidates       fast, approximate, semantic
+Lexical tsvector search ► top 40 candidates     exact identifiers, error codes
+  │        └──────────► RRF fusion ◄──────────┘  rank-based, scale-free
+  ▼
+Fused candidates ──► top 40
   │ 2. Maximal Marginal Relevance
   ▼
-MMR diversification ──► top 10 candidates      removes near-duplicates
+MMR diversification ──► top 30 candidates      removes near-duplicates
   │ 3. cross-encoder
   ▼
-Reranking ──► top 5 chunks                     precise, query-aware scoring
+Reranking ──► top 6 chunks                     precise, query-aware scoring
   │ 4. language model
   ▼
 Grounded answer + evidence                     cites the chunks it used
 ```
+
+**Stage 1 — two branches, one fusion.** The dense branch (HNSW over pgvector)
+handles paraphrases and semantic similarity: *"payment deadline"* finds
+*"invoice due date"* even with no shared words. The lexical branch (PostgreSQL
+tsvector full-text search over `search_text`, ranked by `ts_rank_cd`) handles
+exact identifiers, error codes, product names, acronyms and rare proper nouns —
+cases where embeddings can dilute low-frequency tokens. The two branches are
+fused with **Reciprocal Rank Fusion (RRF)**: each chunk's rank position in each
+branch contributes `1 / (k + rank)` (k = 60) to a summed score. RRF works on
+ranks, not raw scores, so it never tries to put cosine similarity and BM25-style
+lexical scores on the same scale. The dense-only path remains available behind
+`RETRIEVAL_HYBRID_ENABLED = false` for baseline/experiment comparisons.
 
 **Stage 1 — vector search (HNSW).** The question is embedded under the same
 strategy as the stored vectors (a question and its answer must live in the
@@ -218,11 +234,17 @@ The pipeline's shape is fixed; its numbers are settings, not constants:
 
 | Setting | Default | What it controls |
 |---|---|---|
-| `RETRIEVAL_HNSW_TOP_K` | 50 | Candidates the vector search returns |
+| `RETRIEVAL_HYBRID_ENABLED` | true | Feature flag: hybrid (dense + lexical) vs. dense-only retrieval |
+| `RETRIEVAL_DENSE_TOP_K` | 40 | Dense (HNSW) candidates in the hybrid path |
+| `RETRIEVAL_LEXICAL_TOP_K` | 40 | Lexical (tsvector) candidates in the hybrid path |
+| `RETRIEVAL_HYBRID_TOP_K` | 40 | Fused candidates kept after RRF, before MMR |
+| `RETRIEVAL_RRF_K` | 60 | RRF smoothing constant |
+| `RETRIEVAL_HNSW_TOP_K` | 50 | Candidates the dense-only vector search returns |
 | `RETRIEVAL_HNSW_EF_SEARCH` | 100 | HNSW search effort — higher is more accurate, slower |
-| `RETRIEVAL_MMR_TOP_K` | 10 | Candidates MMR keeps after diversification |
+| `RETRIEVAL_MMR_TOP_K` | 30 | Candidates MMR keeps after diversification |
 | `RETRIEVAL_MMR_LAMBDA` | 0.7 | Relevance vs. diversity balance (1.0 = pure relevance) |
-| `RETRIEVAL_FINAL_TOP_K` | 5 | Chunks that reach the answering model |
+| `RETRIEVAL_RERANK_TOP_K` | 30 | Diversified candidates the reranker scores |
+| `RETRIEVAL_FINAL_TOP_K` | 6 | Chunks that reach the answering model |
 | `EMBED_ON_CHUNK` | true | Embed automatically after chunking, or only on demand |
 | `EMBEDDING_MAX_RETRIES` | 3 | Provider retry bound per embedding batch |
 | `RERANKER_MODEL` | `nvidia/llama-nemotron-rerank-vl-1b-v2` | The reranking model |
@@ -237,7 +259,11 @@ guesswork:
 
 - **`retrieval`** — how many candidates each stage produced
   (`hnsw_candidates`, `mmr_candidates`, `final_chunks`) and whether the
-  reranker was used or the fallback kicked in.
+  reranker was used or the fallback kicked in. In hybrid mode the trace also
+  carries `dense_candidate_count`, `lexical_candidate_count`,
+  `fused_candidate_count` and `overlap_candidate_count` (the dense ∩ lexical
+  intersection): high overlap means the lexical branch adds little; low
+  overlap with better answers means it recovers complementary evidence.
 - **Per-chunk scores** — each returned chunk carries its `similarity` (cosine,
   from the vector search) and its `rerank_score` (the cross-encoder's score),
   so you can see both what the broad search liked and what the precise stage

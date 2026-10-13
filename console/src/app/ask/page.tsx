@@ -4,10 +4,11 @@
  * Ask Memora: the retrieval interface.
  *
  * One question in, one grounded answer out, with the supporting chunks
- * underneath. The pipeline runs server-side (query embedding -> HNSW top 50
- * -> MMR top 10 -> reranker top 5 -> LLM); this page only submits the query
- * and renders the response: the answer, the per-stage candidate counts, and
- * each evidence chunk with its similarity and rerank scores.
+ * underneath. The pipeline runs server-side (query embedding -> dense HNSW
+ * + lexical tsvector -> RRF fusion -> MMR -> reranker -> LLM); this page only
+ * submits the query and renders the response: the answer, the per-stage
+ * candidate counts, and each evidence chunk with its similarity and rerank
+ * scores.
  */
 
 import { useState } from "react";
@@ -28,6 +29,10 @@ export default function AskPage() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<QueryResponse | null>(null);
+  // Per-question retrieval mode: "hybrid" (dense + lexical -> RRF) or
+  // "dense" (HNSW only). Sent with every query; the backend's server
+  // default only applies when this is null.
+  const [mode, setMode] = useState<"hybrid" | "dense">("hybrid");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,7 +41,7 @@ export default function AskPage() {
     setPending(true);
     setError(undefined);
     try {
-      setResult(await api.retrieval.ask(q));
+      setResult(await api.retrieval.ask(q, undefined, mode));
     } catch (err) {
       setError(err instanceof Error ? err.message : "The query failed");
     } finally {
@@ -52,10 +57,33 @@ export default function AskPage() {
         description="Ask a question about your documents. Answers are grounded in the retrieved chunks shown below, and the pipeline says so when the knowledge is insufficient."
       />
 
-      <Panel
-        title="Question"
-        description="Answered from your embedded chunks: HNSW candidates → MMR → reranker → LLM."
-      >
+          <Panel
+            title="Question"
+            description="Answered from your embedded chunks: dense + lexical candidates → RRF fusion → MMR → reranker → LLM."
+            actions={
+              <div className="flex items-center gap-1 rounded-md border border-line bg-surface p-0.5 text-xs">
+                {(["hybrid", "dense"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={`rounded px-2.5 py-1 font-medium capitalize transition-colors ${
+                      mode === m
+                        ? "bg-surface-strong text-ink"
+                        : "text-ink-tertiary hover:text-ink"
+                    }`}
+                    title={
+                      m === "hybrid"
+                        ? "Dense HNSW + lexical tsvector, fused with RRF"
+                        : "Dense HNSW vector search only"
+                    }
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            }
+          >
         <form onSubmit={submit} className="flex flex-col gap-3 px-4 py-4">
           <textarea
             value={query}
@@ -108,7 +136,21 @@ export default function AskPage() {
           {/* --------------------------------------------------- pipeline trace */}
           <Panel title="Pipeline" description="Candidates at each stage.">
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 text-sm">
-              <Trace label="HNSW" value={result.retrieval.hnsw_candidates} />
+              {result.retrieval.lexical_enabled ? (
+                <>
+                  <Trace label="Dense" value={result.retrieval.dense_candidate_count} />
+                  <span aria-hidden className="text-ink-tertiary">+</span>
+                  <Trace label="Lexical" value={result.retrieval.lexical_candidate_count} />
+                  <span aria-hidden className="text-ink-tertiary">→</span>
+                  <Trace label="RRF" value={result.retrieval.fused_candidate_count} />
+                  <span aria-hidden className="text-ink-tertiary">·</span>
+                  <span className="text-xs text-ink-tertiary">
+                    overlap {result.retrieval.overlap_candidate_count}
+                  </span>
+                </>
+              ) : (
+                <Trace label="HNSW" value={result.retrieval.hnsw_candidates} />
+              )}
               <span aria-hidden className="text-ink-tertiary">→</span>
               <Trace label="MMR" value={result.retrieval.mmr_candidates} />
               <span aria-hidden className="text-ink-tertiary">→</span>
