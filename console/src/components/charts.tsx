@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 
 import type { MetricSeries, TimeseriesPoint } from "@/lib/types";
 
+import { AnimatedNumber, useMounted } from "./motion";
+
 /*
  * The dashboard's charts.
  *
@@ -54,14 +56,14 @@ export function ActivityCard({
   const rising = series.current >= series.previous;
 
   return (
-    <div className="rounded-lg border border-line bg-panel p-4">
+    <div className="rounded-lg border border-line bg-panel p-4 transition-[transform,box-shadow] duration-300 hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-tertiary">
           {label}
         </div>
         {delta && (
           <span
-            className={`shrink-0 rounded-full border px-1.5 py-[1px] text-[11px] font-medium ${
+            className={`badge-pop shrink-0 rounded-full border px-1.5 py-[1px] text-[11px] font-medium ${
               series.current === series.previous
                 ? "border-line bg-muted-soft text-ink-secondary"
                 : rising
@@ -77,7 +79,7 @@ export function ActivityCard({
 
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="text-3xl font-medium tabular-nums text-ink">
-          {series.current}
+          <AnimatedNumber value={series.current} />
         </span>
         <span className="text-xs text-ink-secondary">
           in {days} days
@@ -107,6 +109,9 @@ export function DailyBars({
   height?: number;
 }) {
   const [hovered, setHovered] = useState<number | null>(null);
+  // Bars start at zero height and ease up to their value one frame later; when
+  // the window changes they ease from the old height to the new one.
+  const grown = useMounted();
   const max = Math.max(...points.map((point) => point.value), 0);
   const active = hovered === null ? null : points[hovered];
 
@@ -144,7 +149,7 @@ export function DailyBars({
                 className="flex h-full flex-1 cursor-default items-end"
               >
                 <div
-                  className={`w-full rounded-t-[2px] transition-colors ${
+                  className={`bar-grow w-full rounded-t-[2px] transition-[height,background-color] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                     point.value === 0
                       ? "bg-line"
                       : hovered === index
@@ -152,7 +157,13 @@ export function DailyBars({
                         : "bg-brand"
                   }`}
                   style={{
-                    height: point.value === 0 ? 1 : `${Math.max(ratio * 100, 6)}%`,
+                    height: !grown
+                      ? 0
+                      : point.value === 0
+                        ? 1
+                        : `${Math.max(ratio * 100, 6)}%`,
+                    // A left-to-right wave, capped so 90 bars finish together.
+                    transitionDelay: `${Math.min(index * 12, 420)}ms, 0ms`,
                   }}
                 />
               </div>
@@ -245,7 +256,7 @@ export function MetricTile({
 }) {
   const body = (
     <>
-      <span className="grid size-9 shrink-0 place-items-center rounded-md border border-line bg-surface text-ink-secondary">
+      <span className="grid size-9 shrink-0 place-items-center rounded-md border border-line bg-surface text-ink-secondary transition-transform duration-300 group-hover:scale-110 group-hover:text-accent">
         {icon}
       </span>
       <span className="min-w-0">
@@ -265,12 +276,44 @@ export function MetricTile({
   );
 
   const className =
-    "flex items-center gap-3 rounded-lg border border-line bg-panel px-3.5 py-3 transition-colors";
+    "group flex items-center gap-3 rounded-lg border border-line bg-panel px-3.5 py-3 transition-[transform,box-shadow,background-color] duration-300 hover:-translate-y-0.5 hover:shadow-md";
 
   if (!href) return <div className={className}>{body}</div>;
   return (
     <a href={href} className={`${className} hover:bg-surface`}>
       {body}
     </a>
+  );
+}
+
+/** Shimmering stand-ins shown while the dashboard's first load is in flight. */
+export function MetricTileSkeleton() {
+  return (
+    <div className="flex items-center gap-3 rounded-lg border border-line bg-panel px-3.5 py-3">
+      <span className="skeleton size-9 shrink-0 rounded-md" />
+      <span className="min-w-0 flex-1 space-y-1.5">
+        <span className="skeleton block h-2.5 w-16 rounded" />
+        <span className="skeleton block h-5 w-12 rounded" />
+        <span className="skeleton block h-2.5 w-24 rounded" />
+      </span>
+    </div>
+  );
+}
+
+export function ActivityCardSkeleton() {
+  return (
+    <div className="rounded-lg border border-line bg-panel p-4">
+      <span className="skeleton block h-2.5 w-28 rounded" />
+      <span className="skeleton mt-3 block h-8 w-16 rounded" />
+      <div className="mt-4 flex h-14 items-end gap-px">
+        {Array.from({ length: 30 }, (_, i) => (
+          <span
+            key={i}
+            className="skeleton flex-1 rounded-t-[2px]"
+            style={{ height: `${25 + ((i * 37) % 70)}%` }}
+          />
+        ))}
+      </div>
+    </div>
   );
 }

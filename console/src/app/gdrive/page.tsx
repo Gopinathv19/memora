@@ -71,7 +71,7 @@ export default function GoogleDrivePage() {
         <Panel title="Not configured">
           <div className="px-4 py-6 text-sm text-ink-secondary">
             The backend has no Google Drive OAuth client. Set GOOGLE_CLIENT_ID,
-            GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI in backend/.env, then
+            GOOGLE_DRIVE_CLIENT_SECRET and GOOGLE_REDIRECT_URI in backend/.env, then
             restart it.
           </div>
         </Panel>

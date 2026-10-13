@@ -120,3 +120,81 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--color-line) transparent;
 }
+
+/* --- Dashboard motion ------------------------------------------------------
+ * Cards rise and fade in one after another; bars and numbers are animated in
+ * components/motion.tsx and charts.tsx. All of it is switched off below for
+ * anyone who asks their system for reduced motion. */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.stagger > * {
+  animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 50ms; }
+.stagger > *:nth-child(3) { animation-delay: 100ms; }
+.stagger > *:nth-child(4) { animation-delay: 150ms; }
+.stagger > *:nth-child(5) { animation-delay: 200ms; }
+.stagger > *:nth-child(6) { animation-delay: 250ms; }
+.stagger > *:nth-child(7) { animation-delay: 300ms; }
+.stagger > *:nth-child(8) { animation-delay: 350ms; }
+.stagger > *:nth-child(n + 9) { animation-delay: 400ms; }
+
+.badge-pop {
+  animation: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) 0.5s backwards;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-strong) 25%,
+    var(--color-surface) 50%,
+    var(--color-surface-strong) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stagger > *,
+  .badge-pop,
+  .skeleton {
+    animation: none;
+  }
+  .bar-grow {
+    transition: none !important;
+  }
+}

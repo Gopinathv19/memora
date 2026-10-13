@@ -18,6 +18,8 @@ import {
   useState,
 } from "react";
 
+import { usePathname } from "next/navigation";
+
 import { api } from "@/lib/api";
 import type { Tenant } from "@/lib/types";
 
@@ -47,6 +49,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [tenant, setTenantState] = useState<Tenant | null>(null);
   const [loading, setLoading] = useState(true);
+  // The sign-in page has no session yet, so there is nothing to list.
+  const onLoginPage = usePathname() === "/login";
 
   const load = useCallback(async (): Promise<Tenant[]> => {
     const list = await api.tenants.list();
@@ -67,6 +71,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (onLoginPage) {
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
     load()
       .catch(() => {
@@ -78,7 +86,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, onLoginPage]);
 
   const setTenant = useCallback((next: Tenant | null) => {
     setTenantState(next);

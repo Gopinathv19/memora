@@ -144,6 +144,26 @@ function currentSectionLabel(pathname: string): string {
   return "Console";
 }
 
+const USER_CACHE_KEY = "memora.user";
+
+function readCachedUser(): User | null {
+  try {
+    const raw = window.sessionStorage.getItem(USER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedUser(user: User | null): void {
+  try {
+    if (user) window.sessionStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
+    else window.sessionStorage.removeItem(USER_CACHE_KEY);
+  } catch {
+    // Storage can be blocked; the console just waits for the API instead.
+  }
+}
+
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
@@ -159,13 +179,24 @@ export function Shell({ children }: { children: React.ReactNode }) {
       return;
     }
     let cancelled = false;
+    // Paint the console straight away from the last verified user so pages
+    // start loading their own data immediately; the session is still checked
+    // against the API below, and a 401 sends the browser to /login.
+    const cached = readCachedUser();
+    if (cached) {
+      setUser(cached);
+      setChecking(false);
+    }
     api.auth
       .me()
       .then((me) => {
-        if (!cancelled) setUser(me);
+        if (cancelled) return;
+        writeCachedUser(me);
+        setUser(me);
       })
       .catch(() => {
         // request() has already sent the browser to /login on a 401.
+        writeCachedUser(null);
         if (!cancelled) setUser(null);
       })
       .finally(() => {
@@ -444,6 +475,7 @@ function UserMenu({ user }: { user: User }) {
     try {
       await api.auth.logout();
     } finally {
+      writeCachedUser(null);
       window.location.href = "/login";
     }
   }

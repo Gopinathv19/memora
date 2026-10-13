@@ -23,6 +23,7 @@ DEFAULT_TEST_DB = "postgresql+psycopg://memora:memora@localhost:55432/memora"
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DB)
 os.environ.setdefault("API_SECRET", "test-secret")
 os.environ.setdefault("STORAGE_DIR", "./var/test-storage")
+os.environ.setdefault("SCOPE_CACHE_TTL_SECONDS", "0")  # tests change ownership between calls
 os.environ.pop("ADMIN_API_KEY", None)
 
 # Belt and braces: refuse to run the suite against anything that is not an

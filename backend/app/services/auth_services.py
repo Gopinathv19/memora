@@ -11,6 +11,7 @@ handler in main.py.
 """
 
 import re
+import time
 import uuid
 from dataclasses import dataclass
 
@@ -71,6 +72,54 @@ def find_auth_account(
     if user_id is not None:
         stmt = stmt.where(Authenticated_User.user_id == user_id)
     return db.execute(stmt).scalar_one_or_none()
+
+
+# A console session resolves to (user exists, tenants owned) on every request,
+# which is one database round trip before the route's own query even starts.
+# The answer is remembered for a few seconds per user; creating a tenant drops
+# it at once, so a new tenant is never invisible to the user who made it.
+# Single-process cache: with several workers another worker's copy ages out
+# within SCOPE_CACHE_TTL_SECONDS (set it to 0 to disable).
+_scope_cache: dict[uuid.UUID, tuple[float, frozenset[uuid.UUID]]] = {}
+
+
+def cached_tenant_ids(user_id: uuid.UUID) -> frozenset[uuid.UUID] | None:
+    entry = _scope_cache.get(user_id)
+    if entry is None or entry[0] < time.monotonic():
+        _scope_cache.pop(user_id, None)
+        return None
+    return entry[1]
+
+
+def remember_tenant_ids(user_id: uuid.UUID, tenant_ids: frozenset[uuid.UUID]) -> None:
+    ttl = get_settings().scope_cache_ttl_seconds
+    if ttl > 0:
+        _scope_cache[user_id] = (time.monotonic() + ttl, tenant_ids)
+
+
+def invalidate_scope_cache(user_id: uuid.UUID | None = None) -> None:
+    if user_id is None:
+        _scope_cache.clear()
+    else:
+        _scope_cache.pop(user_id, None)
+
+
+def get_user_with_tenant_ids(
+    db: Session, user_id: uuid.UUID
+) -> tuple[Users | None, frozenset[uuid.UUID]]:
+    """The user and every tenant they own, in one round trip.
+
+    Same freshness as `get_user` + `owned_tenant_ids` (nothing is cached across
+    requests); it only avoids paying network latency twice per request.
+    """
+    rows = db.execute(
+        select(Users, Tenant.id)
+        .outerjoin(Tenant, Tenant.user_owner_id == Users.id)
+        .where(Users.id == user_id)
+    ).all()
+    if not rows:
+        return None, frozenset()
+    return rows[0][0], frozenset(t for _, t in rows if t is not None)
 
 
 def owned_tenant_ids(db: Session, user_id: uuid.UUID) -> frozenset[uuid.UUID]:

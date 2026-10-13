@@ -2,7 +2,7 @@
 
 This is a *separate* OAuth client from the console's Google sign-in. Sign-in
 verifies a Google-issued ID token (no secret); the Drive connector runs the
-authorization-code flow: it needs GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI,
+authorization-code flow: it needs GOOGLE_DRIVE_CLIENT_SECRET and GOOGLE_REDIRECT_URI,
 and asks for the read-only Drive scope.
 
 Security rules enforced here:
@@ -55,14 +55,14 @@ def drive_client_id() -> str:
 def is_configured() -> bool:
     s = get_settings()
     return bool(
-        drive_client_id() and s.google_client_secret and s.google_redirect_uri
+        drive_client_id() and s.google_drive_client_secret and s.google_redirect_uri
     )
 
 
 def require_configured() -> None:
     if not is_configured():
         raise ValidationError(
-            "Google Drive connector is not configured: set GOOGLE_CLIENT_SECRET "
+            "Google Drive connector is not configured: set GOOGLE_DRIVE_CLIENT_SECRET "
             "and GOOGLE_REDIRECT_URI in backend/.env"
         )
 
@@ -172,7 +172,7 @@ def exchange_code(code: str) -> DriveTokens:
                 TOKEN_ENDPOINT,
                 data={
                 "client_id": drive_client_id(),
-                "client_secret": s.google_client_secret,
+                "client_secret": s.google_drive_client_secret,
                 "code": code,
                     "grant_type": "authorization_code",
                     "redirect_uri": s.google_redirect_uri,
@@ -197,7 +197,7 @@ def refresh_access_token(refresh_token: str) -> DriveTokens:
                 TOKEN_ENDPOINT,
                 data={
                     "client_id": drive_client_id(),
-                    "client_secret": s.google_client_secret,
+                    "client_secret": s.google_drive_client_secret,
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,
                 },

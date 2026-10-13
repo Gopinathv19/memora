@@ -67,7 +67,65 @@ function buildUrl(path: string, query?: Query): string {
   return url.toString();
 }
 
-export async function request<T>(
+// --- GET sharing and caching ------------------------------------------------
+// Several components ask for the same thing on one navigation (the shell and
+// the tenant switcher both need the user and the tenants), and the API is a
+// network hop away from its database. Identical GETs that are in flight at the
+// same moment share one request; the slow-changing reference lists are also
+// kept for a few seconds so moving between pages is instant. Any write
+// (POST/PUT/PATCH/DELETE) clears the cache, so a list never lags behind a
+// change made from this console. Status/progress endpoints are never cached.
+const CACHE_TTL_MS = 20_000;
+const CACHEABLE_PATHS = [
+  /^\/auth\/me$/,
+  /^\/tenants$/,
+  /^\/applications$/,
+  /^\/actors$/,
+  /^\/subjects$/,
+  /^\/credentials$/,
+  /^\/embedding\/(strategies|models)$/,
+];
+const inflight = new Map<string, Promise<unknown>>();
+const recent = new Map<string, { at: number; value: unknown }>();
+
+export function clearRequestCache(): void {
+  recent.clear();
+}
+
+export function request<T>(
+  path: string,
+  init: RequestInit & { query?: Query } = {},
+): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET") {
+    clearRequestCache();
+    inflight.clear();
+    return doRequest<T>(path, init);
+  }
+  if (init.signal) return doRequest<T>(path, init);
+
+  const key = buildUrl(path, init.query);
+  const cacheable = CACHEABLE_PATHS.some((pattern) => pattern.test(path));
+  if (cacheable) {
+    const hit = recent.get(key);
+    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit.value as T);
+  }
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;
+
+  const promise = doRequest<T>(path, init)
+    .then((value) => {
+      if (cacheable) recent.set(key, { at: Date.now(), value });
+      return value;
+    })
+    .finally(() => {
+      inflight.delete(key);
+    });
+  inflight.set(key, promise);
+  return promise;
+}
+
+async function doRequest<T>(
   path: string,
   init: RequestInit & { query?: Query } = {},
 ): Promise<T> {

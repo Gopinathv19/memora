@@ -286,12 +286,13 @@ def dashboard_counts(db: Session, scope: Scope) -> dict:
     from app.schemas.enums import ResourceStatus
 
     def _count(model, *predicates, join=None):
+        """A scalar COUNT subquery; all of them are fetched in one statement."""
         stmt = select(func.count()).select_from(model)
         if join is not None:
             stmt = stmt.join(*join)
         for predicate in predicates:
             stmt = stmt.where(predicate)
-        return db.execute(stmt).scalar_one()
+        return stmt.scalar_subquery()
 
     # Every count is constrained by both predicates. For a console user the
     # application half is a no-op `true`, which is what gives them tenant-wide
@@ -307,33 +308,39 @@ def dashboard_counts(db: Session, scope: Scope) -> dict:
         .group_by(Source.status)
     ).all()
 
+    counts = db.execute(
+        select(
+            _count(Tenant, scope.tenant_predicate(Tenant.id)).label("tenants"),
+            _count(
+                Application,
+                scope.tenant_predicate(Application.tenant_id),
+                scope.application_predicate(Application.id),
+            ).label("applications"),
+            _count(
+                Actor,
+                scope.tenant_predicate(Actor.tenant_id),
+                scope.application_predicate(Actor.application_id),
+            ).label("actors"),
+            _count(
+                Subject,
+                scope.tenant_predicate(Subject.tenant_id),
+                scope.application_predicate(Subject.application_id),
+            ).label("subjects"),
+            _count(Source, *scoped).label("sources"),
+            # ApiCredential has no tenant_id of its own, so the tenant half of
+            # the scope can only be applied through its application.
+            _count(
+                ApiCredential,
+                ApiCredential.status == ResourceStatus.ACTIVE.value,
+                scope.tenant_predicate(Application.tenant_id),
+                scope.application_predicate(ApiCredential.application_id),
+                join=(Application, Application.id == ApiCredential.application_id),
+            ).label("active_credentials"),
+        )
+    ).one()
+
     return {
-        "tenants": _count(Tenant, scope.tenant_predicate(Tenant.id)),
-        "applications": _count(
-            Application,
-            scope.tenant_predicate(Application.tenant_id),
-            scope.application_predicate(Application.id),
-        ),
-        "actors": _count(
-            Actor,
-            scope.tenant_predicate(Actor.tenant_id),
-            scope.application_predicate(Actor.application_id),
-        ),
-        "subjects": _count(
-            Subject,
-            scope.tenant_predicate(Subject.tenant_id),
-            scope.application_predicate(Subject.application_id),
-        ),
-        "sources": _count(Source, *scoped),
-        # ApiCredential has no tenant_id of its own, so the tenant half of the
-        # scope can only be applied through its application.
-        "active_credentials": _count(
-            ApiCredential,
-            ApiCredential.status == ResourceStatus.ACTIVE.value,
-            scope.tenant_predicate(Application.tenant_id),
-            scope.application_predicate(ApiCredential.application_id),
-            join=(Application, Application.id == ApiCredential.application_id),
-        ),
+        **counts._asdict(),
         "sources_by_status": {status: count for status, count in status_rows},
     }
 
@@ -355,19 +362,27 @@ def dashboard_metrics(db: Session, scope: Scope, days: int = 30) -> dict:
     window_start = date.today() - timedelta(days=days - 1)
     previous_start = window_start - timedelta(days=days)
 
-    def _daily(model, *predicates) -> list[dict]:
-        """One row per day that has rows, as `YYYY-MM-DD` -> count."""
+    def _series(session: Session, model, predicates) -> dict:
+        """Daily points for the window, plus current/previous totals.
+
+        One query buckets both windows (the previous span and the current
+        one); the two totals are summed from those buckets, so a series costs
+        a single round trip instead of three.
+        """
         day = func.date_trunc("day", model.created_at).label("day")
-        rows = db.execute(
+        rows = session.execute(
             select(day, func.count())
-            .where(*predicates, model.created_at >= window_start)
+            .where(*predicates, model.created_at >= previous_start)
             .group_by(day)
             .order_by(day)
         ).all()
         counted = {row[0].date().isoformat(): row[1] for row in rows}
+        window_start_iso = window_start.isoformat()
+        current = sum(n for d, n in counted.items() if d >= window_start_iso)
+        previous = sum(n for d, n in counted.items() if d < window_start_iso)
         # Zero-fill: a chart with gaps for quiet days reads as missing data
         # rather than as nothing having happened.
-        return [
+        points = [
             {
                 "date": (window_start + timedelta(days=offset)).isoformat(),
                 "value": counted.get(
@@ -376,14 +391,7 @@ def dashboard_metrics(db: Session, scope: Scope, days: int = 30) -> dict:
             }
             for offset in range(days)
         ]
-
-    def _between(model, start, end, *predicates) -> int:
-        stmt = select(func.count()).select_from(model).where(
-            *predicates, model.created_at >= start
-        )
-        if end is not None:
-            stmt = stmt.where(model.created_at < end)
-        return db.execute(stmt).scalar_one()
+        return {"points": points, "current": current, "previous": previous}
 
     source_scope = [
         scope.tenant_predicate(Source.tenant_id),
@@ -398,37 +406,51 @@ def dashboard_metrics(db: Session, scope: Scope, days: int = 30) -> dict:
         scope.application_predicate(Actor.application_id),
     ]
 
-    def _series(model, predicates) -> dict:
-        return {
-            "points": _daily(model, *predicates),
-            "current": _between(model, window_start, None, *predicates),
-            "previous": _between(model, previous_start, window_start, *predicates),
-        }
+    def _types(session: Session) -> list:
+        return session.execute(
+            select(Source.type, func.count()).where(*source_scope).group_by(Source.type)
+        ).all()
 
-    type_rows = db.execute(
-        select(Source.type, func.count()).where(*source_scope).group_by(Source.type)
-    ).all()
+    def _totals(session: Session):
+        return session.execute(
+            select(
+                func.coalesce(func.sum(Source.size_bytes), 0),
+                func.coalesce(func.max(Source.size_bytes), 0),
+                func.max(Source.created_at),
+            ).where(*source_scope)
+        ).one()
 
-    storage_bytes = (
-        db.execute(
-            select(func.coalesce(func.sum(Source.size_bytes), 0)).where(*source_scope)
-        ).scalar_one()
-        or 0
-    )
+    # The five reads are independent, and each costs a network round trip to the
+    # database, so they run side by side on their own connections: the request
+    # takes about one round trip instead of five. (Read-only; the caller's
+    # session is not used from the worker threads.)
+    from concurrent.futures import ThreadPoolExecutor
 
-    largest = db.execute(
-        select(func.coalesce(func.max(Source.size_bytes), 0)).where(*source_scope)
-    ).scalar_one()
+    from app.db.database import ReadSessionLocal
 
-    latest = db.execute(
-        select(func.max(Source.created_at)).where(*source_scope)
-    ).scalar_one()
+    def _run(task):
+        with ReadSessionLocal() as session:
+            return task(session)
+
+    tasks = [
+        lambda se: _series(se, Source, source_scope),
+        lambda se: _series(se, Subject, subject_scope),
+        lambda se: _series(se, Actor, actor_scope),
+        _types,
+        _totals,
+    ]
+    with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+        sources_series, subjects_series, actors_series, type_rows, totals = list(
+            pool.map(_run, tasks)
+        )
+    storage_bytes, largest, latest = totals
+    storage_bytes = storage_bytes or 0
 
     return {
         "days": days,
-        "sources": _series(Source, source_scope),
-        "subjects": _series(Subject, subject_scope),
-        "actors": _series(Actor, actor_scope),
+        "sources": sources_series,
+        "subjects": subjects_series,
+        "actors": actors_series,
         "sources_by_type": {source_type: count for source_type, count in type_rows},
         "storage_bytes": int(storage_bytes),
         "largest_source_bytes": int(largest or 0),

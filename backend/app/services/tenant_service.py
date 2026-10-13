@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import NotFoundError
 from app.db.models import Application, Source, Subject, Tenant
 from app.schemas.tenant import TenantCreate, TenantUpdate, TenantWithCounts
+from app.services.auth_services import invalidate_scope_cache
 from app.services.scope import Scope
 
 
@@ -13,6 +14,7 @@ def create_tenant(db: Session, payload: TenantCreate,user_owner_id:uuid.UUID) ->
     tenant = Tenant(name=payload.name, status=payload.status.value,user_owner_id=user_owner_id)
     db.add(tenant)
     db.commit()
+    invalidate_scope_cache(user_owner_id)
     db.refresh(tenant)
     return tenant
 

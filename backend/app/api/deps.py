@@ -34,7 +34,12 @@ from app.db.database import get_db
 from app.db.models.users import Users
 from app.graph.ingestion import GraphIngestionService, get_graph_ingestion
 from app.graph.retrieval import GraphRetrievalService, get_graph_retrieval
-from app.services.auth_services import get_user, owned_tenant_ids
+from app.services.auth_services import (
+    cached_tenant_ids,
+    get_user,
+    get_user_with_tenant_ids,
+    remember_tenant_ids,
+)
 from app.services.credential_service import AuthContext, authenticate_token
 from app.services.scope import Scope
 from app.storage import StorageBackend, get_storage
@@ -100,8 +105,14 @@ def get_scope(
     if token is None:
         raise AuthenticationError("Not authenticated")
 
-    user = _user_from_session(db, token)
-    return Scope.for_users(user.id, tenants_ids=owned_tenant_ids(db, user.id))
+    user_id = session_user_id(token)
+    tenant_ids = cached_tenant_ids(user_id)
+    if tenant_ids is None:
+        user, tenant_ids = get_user_with_tenant_ids(db, user_id)
+        if user is None:
+            raise AuthenticationError("User no longer exists")
+        remember_tenant_ids(user_id, tenant_ids)
+    return Scope.for_users(user_id, tenants_ids=tenant_ids)
 
 
 def get_auth_context(

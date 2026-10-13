@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     auth_jwt_secret: str = "change-me-in-production"
     auth_jwt_issuer: str = "memora"
     auth_token_ttl_minutes: int = 60 * 24 * 7  # one week
+    # How long a console user's tenant list is reused between requests (see
+    # auth_services.cached_tenant_ids). 0 disables it.
+    scope_cache_ttl_seconds: float = 5.0
 
     auth_cookie_name: str = "memora_session"
     auth_cookie_secure: bool = False
@@ -59,7 +62,7 @@ class Settings(BaseSettings):
     # A separate OAuth 2.0 *authorization-code* client from the sign-in one:
     # the Drive connector needs a client secret and a redirect URI, and asks
     # for the read-only Drive scope. Empty = the connector answers 503.
-    google_client_secret: str = ""
+    google_drive_client_secret: str = ""
     google_redirect_uri: str = ""
     # The Drive connector's own OAuth client (a different client from the
     # sign-in one). Falls back to the sign-in client id when unset.

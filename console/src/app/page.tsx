@@ -5,11 +5,16 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useResource } from "@/lib/useResource";
 import { formatBytes, formatDate, formatRelative } from "@/lib/format";
-import { ActivityCard, MetricTile } from "@/components/charts";
+import {
+  ActivityCard,
+  ActivityCardSkeleton,
+  MetricTile,
+  MetricTileSkeleton,
+} from "@/components/charts";
+import { AnimatedNumber } from "@/components/motion";
 import {
   Button,
   ErrorState,
-  LoadingState,
   PageHeader,
   Panel,
 } from "@/components/ui";
@@ -92,61 +97,72 @@ export default function DashboardPage() {
 
       {/* --------------------------------------------------- the current state */}
       {stats.loading ? (
-        <Panel>
-          <LoadingState label="Loading counts" />
-        </Panel>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 8 }, (_, i) => (
+            <MetricTileSkeleton key={i} />
+          ))}
+        </div>
       ) : stats.error ? (
         <Panel>
           <ErrorState message={stats.error} onRetry={stats.reload} />
         </Panel>
       ) : (
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="stagger mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <MetricTile
             icon={<TileIcon name="tenants" />}
             label="Tenants"
-            value={stats.data!.tenants}
+            value={<AnimatedNumber value={stats.data!.tenants} />}
             caption="Organizations"
             href="/tenants"
           />
           <MetricTile
             icon={<TileIcon name="applications" />}
             label="Applications"
-            value={stats.data!.applications}
+            value={<AnimatedNumber value={stats.data!.applications} />}
             caption="Consuming applications"
             href="/applications"
           />
           <MetricTile
             icon={<TileIcon name="actors" />}
             label="Actors"
-            value={stats.data!.actors}
+            value={<AnimatedNumber value={stats.data!.actors} />}
             caption="Users, services and agents"
             href="/actors"
           />
           <MetricTile
             icon={<TileIcon name="subjects" />}
             label="Subjects"
-            value={stats.data!.subjects}
+            value={<AnimatedNumber value={stats.data!.subjects} />}
             caption="Workspaces"
             href="/subjects"
           />
           <MetricTile
             icon={<TileIcon name="sources" />}
             label="Sources"
-            value={stats.data!.sources}
+            value={<AnimatedNumber value={stats.data!.sources} />}
             caption="Registered knowledge"
             href="/sources"
           />
           <MetricTile
             icon={<TileIcon name="credentials" />}
             label="Active credentials"
-            value={stats.data!.active_credentials}
+            value={<AnimatedNumber value={stats.data!.active_credentials} />}
             caption="Usable bearer tokens"
             href="/credentials"
           />
           <MetricTile
             icon={<TileIcon name="storage" />}
             label="Storage used"
-            value={formatBytes(metrics.data?.storage_bytes)}
+            value={
+              metrics.data ? (
+                <AnimatedNumber
+                  value={metrics.data.storage_bytes}
+                  format={formatBytes}
+                />
+              ) : (
+                formatBytes(undefined)
+              )
+            }
             caption={
               metrics.data
                 ? `Largest ${formatBytes(metrics.data.largest_source_bytes)}`
@@ -172,15 +188,17 @@ export default function DashboardPage() {
 
       {/* -------------------------------------------------------- the movement */}
       {metrics.loading ? (
-        <Panel>
-          <LoadingState label="Loading activity" />
-        </Panel>
+        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+          {Array.from({ length: 3 }, (_, i) => (
+            <ActivityCardSkeleton key={i} />
+          ))}
+        </div>
       ) : metrics.error ? (
         <Panel>
           <ErrorState message={metrics.error} onRetry={metrics.reload} />
         </Panel>
       ) : (
-        <div className="mb-4 grid gap-3 lg:grid-cols-3">
+        <div className="stagger mb-4 grid gap-3 lg:grid-cols-3">
           <ActivityCard
             label="Sources registered"
             series={metrics.data!.sources}
