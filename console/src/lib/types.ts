@@ -525,6 +525,8 @@ export interface RetrievalTrace {
   final_candidate_count: number;
   lexical_enabled: boolean;
   fusion_method: string;
+  /** Wall-clock per pipeline stage, in ms. */
+  timings_ms?: Record<string, number>;
 }
 
 export interface QueryUsage {
@@ -532,6 +534,9 @@ export interface QueryUsage {
   completion_tokens: number;
   latency_ms: number;
 }
+
+/** First event of POST /query/stream: the evidence, before the answer. */
+export type QueryStart = Omit<QueryResponse, "answer" | "usage">;
 
 /** Response of POST /query: the grounded answer plus its evidence. */
 export interface QueryResponse {

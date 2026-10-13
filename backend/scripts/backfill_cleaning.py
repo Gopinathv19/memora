@@ -37,13 +37,15 @@ def main() -> int:
 
     settings = get_settings()
     from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
     from app.db.models import SourceExtraction
 
     engine = create_engine(settings.database_url)
     failed_units: list[str] = []
     touched_extractions: list = []
 
-    with engine.connect() as conn:
+    # An ORM Session (not a bare connection) so rows come back as models.
+    with Session(engine, expire_on_commit=False) as conn:
         stmt = select(SourceExtraction)
         if args.source:
             stmt = stmt.where(SourceExtraction.source_id == args.source)

@@ -11,10 +11,10 @@
  * scores.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { QueryResponse, RetrievedChunk } from "@/lib/types";
+import type { QueryUsage, QueryStart, RetrievedChunk } from "@/lib/types";
 import {
   Button,
   ErrorState,
@@ -28,7 +28,11 @@ export default function AskPage() {
   const [query, setQuery] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  const [result, setResult] = useState<QueryResponse | null>(null);
+  // The evidence arrives first, then the answer streams in; usage comes last.
+  const [result, setResult] = useState<
+    (QueryStart & { answer: string; usage: QueryUsage | null }) | null
+  >(null);
+  const abortRef = useRef<AbortController | null>(null);
   // Per-question retrieval mode: "hybrid" (dense + lexical -> RRF) or
   // "dense" (HNSW only). Sent with every query; the backend's server
   // default only applies when this is null.
@@ -40,12 +44,26 @@ export default function AskPage() {
     if (!q || pending) return;
     setPending(true);
     setError(undefined);
+    setResult(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      setResult(await api.retrieval.ask(q, undefined, mode));
+      const usage = await api.retrieval.askStream(
+        q,
+        {
+          onStart: (start) => setResult({ ...start, answer: "", usage: null }),
+          onDelta: (text) =>
+            setResult((r) => (r ? { ...r, answer: r.answer + text } : r)),
+        },
+        { retrievalMode: mode, signal: controller.signal },
+      );
+      setResult((r) => (r ? { ...r, usage } : r));
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "The query failed");
     } finally {
-      setPending(false);
+      if (abortRef.current === controller) setPending(false);
     }
   }
 
@@ -120,9 +138,9 @@ export default function AskPage() {
             description={`Strategy: ${result.strategy_name}`}
             actions={
               <span className="text-xs text-ink-tertiary">
-                {result.usage.prompt_tokens.toLocaleString()} in ·{" "}
-                {result.usage.completion_tokens.toLocaleString()} out ·{" "}
-                {result.usage.latency_ms.toLocaleString()} ms
+                {result.usage
+                  ? `${result.usage.prompt_tokens.toLocaleString()} in · ${result.usage.completion_tokens.toLocaleString()} out · ${result.usage.latency_ms.toLocaleString()} ms`
+                  : "Writing…"}
               </span>
             }
           >

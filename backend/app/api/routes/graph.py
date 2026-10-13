@@ -10,7 +10,7 @@ from app.schemas.graph import (
     GraphQueryRequest,
     GraphRetrievalResult,
 )
-from app.services import graph_service
+from app.services import graph_service, job_service
 
 source_router = APIRouter(prefix="/sources/{source_id}/graph", tags=["graph"])
 subject_router = APIRouter(prefix="/subjects/{subject_id}/graph", tags=["graph"])
@@ -33,7 +33,7 @@ def start_graph_build(
     409 while a build is running; 503 if the graph is not configured.
     """
     build = graph_service.start_build(db, source_id, payload, scope, ingestion)
-    background.add_task(graph_service.run_build, build.id, ingestion)
+    job_service.dispatch_graph_build(db, background, build.id, ingestion)
     return build
 
 

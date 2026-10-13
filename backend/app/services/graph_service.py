@@ -15,6 +15,7 @@ A source's `status` is not touched: it follows the extraction, not the graph.
 """
 
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -231,6 +232,7 @@ def run_build(build_id: uuid.UUID, ingestion: GraphIngestionService) -> None:
         if build.retry_of_id is not None:
             previous = db.get(SourceGraphBuild, build.retry_of_id)
             only = {f["index"] for f in (previous.failed_chunks if previous else [])}
+        build_started = time.monotonic()
         try:
             result = ingestion.ingest_document(
                 tenant_id=str(build.tenant_id),
@@ -254,7 +256,10 @@ def run_build(build_id: uuid.UUID, ingestion: GraphIngestionService) -> None:
             build.failed_chunk_count = len(result.failed_chunks)
             build.entity_count = result.entity_count
             build.relationship_count = result.relationship_count
-            build.stats = result.stats
+            build.stats = {
+                **(result.stats or {}),
+                "elapsed_ms": int((time.monotonic() - build_started) * 1000),
+            }
         except Exception as exc:  # the graph write failed, or something unexpected
             log.exception("graph build %s crashed", build_id)
             build.status = GraphBuildStatus.FAILED.value

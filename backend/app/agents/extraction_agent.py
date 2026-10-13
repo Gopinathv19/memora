@@ -24,6 +24,7 @@ from app.agents import prompts
 from app.agents.reading_cache import DbReadingStore, ReadingCache
 from app.agents.windows import build_windows, reduce_windows
 from app.core.config import Settings, get_settings
+from app.llm.cache import cached_chat_json
 from app.llm.client import LLMClient, LLMError, LLMUsage, get_llm_client
 from app.processing.cleaning import (
     CleanReport,
@@ -567,7 +568,8 @@ class NemotronExtractionAgent:
                     )
                     return None, w_usage
                 try:
-                    raw, u = self.client.chat_json(
+                    raw, u, _ = cached_chat_json(
+                        self.client,
                         model,
                         prompts.EXTRACT_SYSTEM,
                         prompts.extract_user_message(
@@ -649,7 +651,8 @@ class NemotronExtractionAgent:
         }
         try:
             metadata_started = time.monotonic()
-            meta_raw, mu = self.client.chat_json(
+            meta_raw, mu, _ = cached_chat_json(
+                self.client,
                 model,
                 prompts.METADATA_SYSTEM,
                 prompts.metadata_user_message(
@@ -782,7 +785,8 @@ _ID_PATTERNS = (
         r"Enrol{1,2}ment\s*(?:No|Number|ID)\.?\s*[:\-]?\s*\**\s*(\d[\d/ .\-]{6,}\d)",
         re.IGNORECASE)),
     ("vid", re.compile(r"\bVID\s*[:\-]?\s*(\d{4}\s\d{4}\s\d{4}\s\d{4})", re.IGNORECASE)),
-    ("aadhaar_number", re.compile(r"(?<![\d/.\-])(\d{4}\s\d{4}\s\d{4})(?![\d/.\-]|\s\d{4})")),
+    # Not the tail of a 16-digit VID: no digit group before or after it.
+    ("aadhaar_number", re.compile(r"(?<![\d/.\-])(?<!\d{4}\s)(\d{4}\s\d{4}\s\d{4})(?![\d/.\-]|\s\d{4})")),
 )
 
 

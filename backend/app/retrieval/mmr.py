@@ -57,16 +57,27 @@ def mmr_select(
     remaining = list(candidates)
     selected: list["Candidate"] = []
 
+    # Each candidate's redundancy is the max cosine to the selected set. That
+    # max only changes when a new chunk is selected, so keep it as a running
+    # value and compare each candidate to the newest pick only -- instead of
+    # re-comparing against every selected chunk on every round (cubic in the
+    # pool size, in pure Python over 2048-dim vectors). Same values, same
+    # order, same result as recomputing from scratch.
+    norms = {id(c): math.sqrt(sum(x * x for x in c.vector)) for c in remaining}
+    redundancy: dict[int, float] = {id(c): 0.0 for c in remaining}
+
+    def cosine_to(cand: "Candidate", other: "Candidate") -> float:
+        na, nb = norms[id(cand)], norms[id(other)]
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+        return _dot(cand.vector, other.vector) / (na * nb)
+
     while remaining and len(selected) < top_k:
         best = None
         best_score = -math.inf
         for cand in remaining:
             relevance = cand.similarity  # cosine(query, chunk), from HNSW
-            redundancy = max(
-                (_cosine(cand.vector, sel.vector) for sel in selected),
-                default=0.0,
-            )
-            score = lambda_ * relevance - (1.0 - lambda_) * redundancy
+            score = lambda_ * relevance - (1.0 - lambda_) * redundancy[id(cand)]
             if score > best_score:
                 best_score = score
                 best = cand
@@ -74,5 +85,9 @@ def mmr_select(
             break
         selected.append(best)
         remaining.remove(best)
+        for cand in remaining:
+            sim = cosine_to(cand, best)
+            if len(selected) == 1 or sim > redundancy[id(cand)]:
+                redundancy[id(cand)] = sim
 
     return selected

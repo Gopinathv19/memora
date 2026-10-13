@@ -15,6 +15,7 @@ from app.core.config import get_settings
 
 _lock = threading.Lock()
 _limiters: dict[str, threading.BoundedSemaphore] = {}
+_interactive_limiters: dict[str, threading.BoundedSemaphore] = {}
 
 
 def _bucket_for(provider: str) -> str:
@@ -37,6 +38,21 @@ def get_limiter(provider: str) -> threading.BoundedSemaphore:
         return _limiters[bucket]
 
 
-def limited(provider: str):
-    """Context manager: acquire the provider's shared slot."""
+def get_interactive_limiter(provider: str) -> threading.BoundedSemaphore:
+    """A small reserved pool for calls a person is waiting on (query
+    embedding, the answer). Background work (extraction, graph, embedding
+    sweeps) can fill the shared pool, but never these slots."""
+    bucket = _bucket_for(provider)
+    reserved = get_settings().llm_interactive_reserved_slots
+    with _lock:
+        if bucket not in _interactive_limiters:
+            _interactive_limiters[bucket] = threading.BoundedSemaphore(max(1, reserved))
+        return _interactive_limiters[bucket]
+
+
+def limited(provider: str, interactive: bool = False):
+    """Context manager: acquire a slot. Interactive calls use their reserved
+    pool, so an ingestion burst cannot queue a user's question."""
+    if interactive:
+        return get_interactive_limiter(provider)
     return get_limiter(provider)

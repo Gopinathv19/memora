@@ -294,11 +294,18 @@ def run_extraction(
                 # The extraction already passed the scope check when it was
                 # started; chunking derives from the same source, so we use a
                 # credential-style scope matching the source's owners.
+                chunk_started = time.monotonic()
                 chunk_extraction(
                     db, source.id,
                     Scope.for_credentials(source.tenant_id, source.application_id),
                     version=extraction.version,
                 )
+                # Keep the chunk phase's wall-clock next to the other timings.
+                extraction.timings = {
+                    **(extraction.timings or {}),
+                    "chunk_ms": int((time.monotonic() - chunk_started) * 1000),
+                }
+                db.commit()
             except Exception:
                 log.exception("auto-chunking failed for extraction %s", extraction_id)
 

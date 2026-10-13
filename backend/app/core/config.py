@@ -80,7 +80,24 @@ class Settings(BaseSettings):
     # (app/llm/limiter.py), shared by the extraction agent, the window
     # pool, the graph pipeline and the embedding worker.
     llm_max_concurrent_calls_per_provider: int = 8
+    # Extra slots only interactive calls (query embedding, the streamed
+    # answer) may use, on top of the shared cap above.
+    llm_interactive_reserved_slots: int = 2
     llm_max_output_tokens: int = 8192
+
+    # Background work. "background" runs extraction/graph jobs as FastAPI
+    # background tasks in the API process (lost on restart). "durable" stores
+    # them in the `jobs` table and a worker (started inside the API process,
+    # or `python -m app.worker`) runs them, with retries and restart recovery.
+    # Cache temperature-0 JSON calls (window extract, metadata, graph chunks)
+    # by content hash: an unchanged re-extract or graph rebuild costs nothing.
+    llm_cache_enabled: bool = True
+    job_queue_mode: str = "background"
+    job_worker_enabled: bool = True  # start the worker inside the API process
+    job_worker_concurrency: int = 2
+    job_poll_seconds: float = 2.0
+    job_lease_seconds: int = 1800
+    job_max_attempts: int = 3
     # The operator's versioned price list (see app/core/pricing.py). A file in
     # the backend, not a setting any console user or credential can reach.
     pricing_file: str = str(Path(__file__).resolve().parents[2] / "pricing.json")
@@ -235,6 +252,12 @@ class Settings(BaseSettings):
     # production without touching application code.
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     embedding_batch_size: int = 64
+    # Provider batches embedded at once during a sweep (the shared limiter
+    # still caps in-flight calls).
+    embedding_concurrency: int = 4
+    # How long a query keeps using the strategy it looked up (0 = every query
+    # looks it up). Creating or editing a strategy clears it at once.
+    strategy_cache_seconds: int = 30
     embedding_max_retries: int = 3
     # How often the background worker sweeps for pending embedding work.
     embedding_worker_interval_seconds: float = 5.0

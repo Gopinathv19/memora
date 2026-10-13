@@ -46,9 +46,14 @@ async def lifespan(_: FastAPI):
     from app.db.database import SessionLocal
     from app.services.extraction_service import fail_interrupted_runs
 
+    from app.services import job_service
+
+    durable = job_service.is_durable()
     try:
+        # In durable mode the jobs table recovers cut-off runs (lease expiry
+        # re-queues them), so they must not be marked failed here.
         with SessionLocal() as db:
-            interrupted = fail_interrupted_runs(db)
+            interrupted = 0 if durable else fail_interrupted_runs(db)
         if interrupted:
             logging.getLogger(__name__).warning(
                 "marked %d interrupted extraction run(s) as failed", interrupted
@@ -62,7 +67,7 @@ async def lifespan(_: FastAPI):
 
     try:
         with SessionLocal() as db:
-            interrupted = fail_interrupted_builds(db)
+            interrupted = 0 if durable else fail_interrupted_builds(db)
         if interrupted:
             logging.getLogger(__name__).warning(
                 "marked %d interrupted graph build(s) as failed", interrupted
@@ -98,7 +103,12 @@ async def lifespan(_: FastAPI):
             )
     except Exception:
         logging.getLogger(__name__).exception("could not check for interrupted embeddings")
+
+    stop_workers = threading.Event()
+    if durable and settings.job_worker_enabled:
+        job_service.start_workers(stop_workers)
     yield
+    stop_workers.set()
 
 
 app = FastAPI(

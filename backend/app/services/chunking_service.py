@@ -94,6 +94,7 @@ def chunk_extraction(
     unit_id_map: list[uuid.UUID] = []  # index → unit id
     for position, u in enumerate(units):
         unit = DocumentUnit(
+            id=uuid.uuid4(),  # assigned here so no per-row flush is needed
             extraction_id=extraction.id,
             tenant_id=source.tenant_id,
             application_id=source.application_id,
@@ -107,7 +108,6 @@ def chunk_extraction(
             section_path=u.section_path,
         )
         db.add(unit)
-        db.flush()  # get the id
         unit_id_map.append(unit.id)
 
     # --- Persist semantic_blocks + retrieval_chunks ---------------------------
@@ -131,6 +131,7 @@ def chunk_extraction(
             continue
         block_unit_ids = [unit_id_map[i] for i in block.unit_indices if i < len(unit_id_map)]
         semantic_block = SemanticBlock(
+            id=uuid.uuid4(),
             extraction_id=extraction.id,
             tenant_id=source.tenant_id,
             application_id=source.application_id,
@@ -145,7 +146,6 @@ def chunk_extraction(
             content=block.content,
         )
         db.add(semantic_block)
-        db.flush()
 
         for c in chunk_list:
             chunk_unit_ids = [

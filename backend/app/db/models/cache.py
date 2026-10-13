@@ -46,3 +46,13 @@ class DocumentCacheEntry(TimestampCreated, Base):
     # readings, so a cache hit reproduces a run completely.
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     readings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+
+class LlmCacheEntry(TimestampCreated, Base):
+    """One temperature-0 JSON model reply, keyed by
+    sha256(model + system prompt + user message) (app/llm/cache.py)."""
+
+    __tablename__ = "llm_cache_entries"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)

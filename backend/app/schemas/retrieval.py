@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class QueryRequest(BaseModel):
@@ -59,6 +59,8 @@ class RetrievalTrace(BaseModel):
     overlap_candidate_count: int = 0
     mmr_candidate_count: int = 0
     reranked_candidate_count: int = 0
+    # Wall-clock per stage (ms), for finding where a query's time goes.
+    timings_ms: dict[str, int] = Field(default_factory=dict)
     final_candidate_count: int = 0
     lexical_enabled: bool = False
     fusion_method: str = "none"

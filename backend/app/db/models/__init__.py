@@ -16,11 +16,12 @@ from app.db.models.chunking import (
     RetrievalChunk,
     SemanticBlock,
 )
-from app.db.models.cache import DocumentCacheEntry, ReadingCacheEntry
+from app.db.models.cache import DocumentCacheEntry, LlmCacheEntry, ReadingCacheEntry
 from app.db.models.credential import ApiCredential
 from app.db.models.embedding import ChunkEmbedding, EmbeddingModel, EmbeddingStrategy
 from app.db.models.extraction import ExtractionUsage, SourceExtraction
 from app.db.models.graph import SourceGraphBuild
+from app.db.models.job import Job
 from app.db.models.source import Source
 from app.db.models.subject import Subject
 from app.db.models.tenant import Tenant
@@ -37,6 +38,7 @@ __all__ = [
     "SourceExtraction",
     "ExtractionUsage",
     "SourceGraphBuild",
+    "Job",
     "DocumentUnit",
     "SemanticBlock",
     "RetrievalChunk",
@@ -45,6 +47,7 @@ __all__ = [
     "ChunkEmbedding",
     "ReadingCacheEntry",
     "DocumentCacheEntry",
+    "LlmCacheEntry",
     "Users",
     "Authenticated_User",
 ]

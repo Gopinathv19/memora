@@ -128,3 +128,19 @@ def test_regex_identifiers_backstop():
     got = {f.key: f.value for f in fields}
     assert got["enrolment_number"] == "2726/10022/47657"
     assert [f.key for f in fields].count("aadhaar_number") == 1
+
+
+def test_regex_identifiers_do_not_take_a_vid_tail_for_an_aadhaar_number():
+    from types import SimpleNamespace as NS
+
+    from app.agents.extraction_agent import _regex_identifiers
+
+    reading = NS(
+        text="Aadhaar 4036 4248 6500\nVID: 9147 9825 3240 4171", unit=NS(index=1)
+    )
+    fields: list = []
+    _regex_identifiers([reading], fields)
+    got = {(f.key, f.value) for f in fields}
+    assert ("aadhaar_number", "4036 4248 6500") in got
+    assert ("vid", "9147 9825 3240 4171") in got
+    assert ("aadhaar_number", "9825 3240 4171") not in got

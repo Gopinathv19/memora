@@ -93,14 +93,16 @@ class NIMEmbeddingProvider:
                     )
         return self._client
 
-    def _embed(self, model: str, texts: list[str], dimensions: int) -> tuple[list[list[float]], EmbeddingUsage]:
+    def _embed(
+        self, model: str, texts: list[str], dimensions: int, interactive: bool = False
+    ) -> tuple[list[list[float]], EmbeddingUsage]:
         import openai
 
         started = time.monotonic()
         try:
             # The same shared limiter as every other model call: the NIM
             # bucket shares build-nvidia when it points there.
-            with limiter.limited(self.provider):
+            with limiter.limited(self.provider, interactive):
                 response = call_with_retry(
                     lambda: self._sdk().embeddings.create(
                         model=model,
@@ -140,7 +142,7 @@ class NIMEmbeddingProvider:
         return self._embed(model, texts, dimensions)
 
     def embed_query(self, model: str, text: str, dimensions: int) -> tuple[list[float], EmbeddingUsage]:
-        vectors, usage = self._embed(model, [text], dimensions)
+        vectors, usage = self._embed(model, [text], dimensions, interactive=True)
         return vectors[0], usage
 
 

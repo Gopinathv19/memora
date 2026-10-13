@@ -24,7 +24,11 @@ changed input produces a new row, and the old row is marked stale.
 
 import logging
 import threading
+import time
 import uuid
+from dataclasses import dataclass
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
@@ -207,6 +211,7 @@ def create_strategy(
         is_active=True,
     )
     db.add(strategy)
+    invalidate_strategy_cache()
     try:
         db.commit()
     except IntegrityError:
@@ -229,6 +234,7 @@ def update_strategy(
     if payload.is_active is not None:
         strategy.is_active = payload.is_active
     db.commit()
+    invalidate_strategy_cache()
     return _strategy_read(get_strategy(db, strategy_id))
 
 
@@ -425,18 +431,20 @@ def run_embedding_batch(
     for row in rows:
         by_strategy.setdefault(row.strategy_id, []).append(row)
 
+    # Pass 1 (this thread, touches the ORM): turn rows into provider batches.
+    jobs: list[tuple[uuid.UUID, EmbeddingStrategyConfig, list[ChunkEmbedding], list[str]]] = []
     for strategy_id, strategy_rows in by_strategy.items():
         strategy = strategies.get(strategy_id)
         if strategy is None:
             for row in strategy_rows:
                 _fail_row(db, row, "strategy no longer exists", now)
-                failed += len(strategy_rows)
+            failed += len(strategy_rows)
             continue
         cfg = _strategy_config(strategy)
 
         for start in range(0, len(strategy_rows), batch_size):
             batch = strategy_rows[start : start + batch_size]
-            inputs: list[str | None] = []
+            inputs: list[str] = []
             valid_rows: list[ChunkEmbedding] = []
             for row in batch:
                 chunk = chunks.get(row.chunk_id)
@@ -446,49 +454,62 @@ def run_embedding_batch(
                     continue
                 inputs.append(build_document_input(cfg, chunk.embedding_text))
                 valid_rows.append(row)
+            if valid_rows:
+                jobs.append((strategy_id, cfg, valid_rows, inputs))
 
-            if not valid_rows:
-                continue
+    # Pass 2: the provider calls are network-bound and independent, so they
+    # run concurrently (the shared limiter still caps in-flight calls). Only
+    # plain data crosses threads; the ORM stays on this thread.
+    def embed(job):
+        _, cfg, _, inputs = job
+        try:
+            return provider.embed_documents(cfg.model_identifier, inputs, cfg.dimension)
+        except EmbeddingProviderError as exc:
+            return exc
 
-            try:
-                vectors, usage = provider.embed_documents(
-                    cfg.model_identifier, inputs, cfg.dimension  # type: ignore[arg-type]
-                )
-            except EmbeddingProviderError as exc:
-                # Batch-level failure: every row in this batch is failed, but
-                # other batches/strategies still get their chance.
-                for row in valid_rows:
-                    _fail_row(db, row, exc.message, now)
-                failed += len(valid_rows)
-                log.warning(
-                    "embedding batch failed (strategy=%s batch=%d): %s",
-                    strategy_id, len(valid_rows), exc.message,
-                )
-                continue
+    workers = max(1, min(settings.embedding_concurrency, len(jobs)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(embed, jobs))
 
-            for row, vector in zip(valid_rows, vectors):
-                try:
-                    validate_dimension(vector, cfg.dimension)
-                    final = (
-                        l2_normalize(vector)
-                        if cfg.normalization == "l2"
-                        else vector
-                    )
-                    row.embedding = final
-                    row.embedding_status = COMPLETED
-                    row.error_message = None
-                    row.embedded_at = now
-                    row.updated_at = now
-                    completed += 1
-                except ValueError as exc:
-                    _fail_row(db, row, str(exc), now)
-                    failed += 1
-
-            log.info(
-                "embedded batch: strategy=%s model=%s chunks=%d tokens=%d latency_ms=%d",
-                strategy_id, cfg.model_identifier, len(valid_rows),
-                usage.total_tokens, usage.latency_ms,
+    # Pass 3 (this thread): record each batch and commit it, so a crash
+    # later in the sweep does not lose the batches already embedded.
+    for (strategy_id, cfg, valid_rows, _), result in zip(jobs, results):
+        if isinstance(result, EmbeddingProviderError):
+            # Batch-level failure: every row in this batch is failed, but
+            # other batches/strategies still got their chance.
+            for row in valid_rows:
+                _fail_row(db, row, result.message, now)
+            failed += len(valid_rows)
+            log.warning(
+                "embedding batch failed (strategy=%s batch=%d): %s",
+                strategy_id, len(valid_rows), result.message,
             )
+            db.commit()
+            continue
+        vectors, usage = result
+        for row, vector in zip(valid_rows, vectors):
+            try:
+                validate_dimension(vector, cfg.dimension)
+                final = (
+                    l2_normalize(vector)
+                    if cfg.normalization == "l2"
+                    else vector
+                )
+                row.embedding = final
+                row.embedding_status = COMPLETED
+                row.error_message = None
+                row.embedded_at = now
+                row.updated_at = now
+                completed += 1
+            except ValueError as exc:
+                _fail_row(db, row, str(exc), now)
+                failed += 1
+        db.commit()
+        log.info(
+            "embedded batch: strategy=%s model=%s chunks=%d tokens=%d latency_ms=%d",
+            strategy_id, cfg.model_identifier, len(valid_rows),
+            usage.total_tokens, usage.latency_ms,
+        )
 
     db.commit()
     return {"claimed": len(rows), "completed": completed, "failed": failed}
@@ -528,12 +549,14 @@ def drain_pending(
     db = SessionLocal()
     try:
         for _ in range(max_sweeps):
+            sweep_started = time.monotonic()
             result = process_pending(db, strategy_id=strategy_id)
             if result["claimed"] == 0:
                 break
             log.info(
-                "embedding drain: claimed=%d completed=%d failed=%d",
+                "embedding drain: claimed=%d completed=%d failed=%d elapsed_ms=%d",
                 result["claimed"], result["completed"], result["failed"],
+                int((time.monotonic() - sweep_started) * 1000),
             )
     except Exception:
         db.rollback()
@@ -601,16 +624,78 @@ def reset_interrupted(db: Session) -> int:
 # --- query embedding (retrieval preparation) ----------------------------------------
 
 
-def embed_query(db: Session, query: str, strategy_id: uuid.UUID | None = None) -> dict:
-    """Embed a query under a strategy. Retrieval preparation only -- no search.
+_QUERY_CACHE_MAX = 256
+_query_cache: "OrderedDict[tuple, list[float]]" = OrderedDict()
+_query_cache_lock = threading.Lock()
 
-    Loads the strategy, applies the query template, calls the provider,
-    validates the dimension, normalizes, and returns the vector plus the
-    strategy context the retrieval layer will need (scope filters, metric).
+
+@dataclass(frozen=True)
+class QueryStrategy:
+    """The few strategy facts a query needs, as plain data: safe to cache and
+    to hand to another thread (an ORM row is neither)."""
+
+    id: uuid.UUID
+    name: str
+    similarity_metric: str
+    config: EmbeddingStrategyConfig
+
+
+_strategy_cache: dict[uuid.UUID | None, tuple[float, QueryStrategy]] = {}
+_strategy_cache_lock = threading.Lock()
+
+
+def invalidate_strategy_cache() -> None:
+    with _strategy_cache_lock:
+        _strategy_cache.clear()
+
+
+def prepare_query_strategy(
+    db: Session, strategy_id: uuid.UUID | None = None
+) -> QueryStrategy:
+    """The strategy a query embeds with, cached briefly in this process.
+
+    Looking it up costs two database round trips on every question, and it
+    changes only when someone creates or edits a strategy (which clears the
+    cache here; other processes see the change within the TTL).
     """
+    ttl = get_settings().strategy_cache_seconds
+    now = time.monotonic()
+    with _strategy_cache_lock:
+        hit = _strategy_cache.get(strategy_id)
+        if hit is not None and hit[0] > now:
+            return hit[1]
     strategy = get_strategy(db, strategy_id) if strategy_id else get_active_strategy(db)
-    cfg = _strategy_config(strategy)
+    resolved = QueryStrategy(
+        id=strategy.id,
+        name=strategy.name,
+        similarity_metric=strategy.similarity_metric,
+        config=_strategy_config(strategy),
+    )
+    if ttl > 0:
+        with _strategy_cache_lock:
+            _strategy_cache[strategy_id] = (now + ttl, resolved)
+    return resolved
+
+
+def embed_query_with_config(
+    cfg: EmbeddingStrategyConfig, query: str
+) -> tuple[list[float], int, int]:
+    """Embed a query under a strategy config: no database access.
+
+    Returns (vector, total_tokens, latency_ms). Identical (model, template,
+    query) inputs are served from a small in-process LRU, so a repeated
+    question skips the network call and gets exactly the same vector.
+    """
     rendered = build_query_input(cfg, query)
+    key = (
+        cfg.model_identifier, cfg.model_version, cfg.dimension,
+        cfg.normalization, rendered,
+    )
+    with _query_cache_lock:
+        cached = _query_cache.get(key)
+        if cached is not None:
+            _query_cache.move_to_end(key)
+            return list(cached), 0, 0
 
     provider = get_embedding_provider()
     vector, usage = provider.embed_query(
@@ -620,13 +705,30 @@ def embed_query(db: Session, query: str, strategy_id: uuid.UUID | None = None) -
     if cfg.normalization == "l2":
         vector = l2_normalize(vector)
 
+    with _query_cache_lock:
+        _query_cache[key] = list(vector)
+        while len(_query_cache) > _QUERY_CACHE_MAX:
+            _query_cache.popitem(last=False)
+    return vector, usage.total_tokens, usage.latency_ms
+
+
+def embed_query(db: Session, query: str, strategy_id: uuid.UUID | None = None) -> dict:
+    """Embed a query under a strategy. Retrieval preparation only -- no search.
+
+    Loads the strategy, applies the query template, calls the provider,
+    validates the dimension, normalizes, and returns the vector plus the
+    strategy context the retrieval layer will need (scope filters, metric).
+    """
+    strategy = prepare_query_strategy(db, strategy_id)
+    cfg = strategy.config
+    vector, total_tokens, latency_ms = embed_query_with_config(cfg, query)
     return {
         "vector": vector,
         "dimension": cfg.dimension,
         "strategy_id": str(strategy.id),
         "strategy_name": strategy.name,
         "similarity_metric": strategy.similarity_metric,
-        "usage": {"total_tokens": usage.total_tokens, "latency_ms": usage.latency_ms},
+        "usage": {"total_tokens": total_tokens, "latency_ms": latency_ms},
     }
 
 

@@ -90,9 +90,13 @@ def clean_tables(_environment):
                 "TRUNCATE chunk_embeddings, retrieval_chunks, semantic_blocks, document_units, "
                 "extraction_usage, source_graph_builds, source_extractions, sources, "
                 "subjects, actors, api_credentials, applications, tenants, "
-                "reading_cache_entries, document_cache_entries CASCADE"
+                "reading_cache_entries, document_cache_entries, llm_cache_entries, jobs CASCADE"
             )
         )
+    # Strategy rows were just truncated: a cached one would point at nothing.
+    from app.services.embedding_service import invalidate_strategy_cache
+
+    invalidate_strategy_cache()
     yield
 
 

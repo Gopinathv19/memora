@@ -27,6 +27,8 @@ import type {
   GraphBuildSummary,
   GraphResult,
   QueryResponse,
+  QueryStart,
+  QueryUsage,
   RechunkResponse,
   RetryFailedResponse,
   RetrievalChunk,
@@ -108,6 +110,87 @@ async function request<T>(
     );
   }
   return payload as T;
+}
+
+/**
+ * POST /query/stream: the answer arrives as server-sent events. `start`
+ * carries the evidence and trace (before the model runs), `delta` the answer
+ * text as it is written, `done` the token usage. Resolves with the usage once
+ * the stream ends; rejects with an ApiError if the request or generation fails.
+ */
+async function streamQuery(
+  body: Record<string, unknown>,
+  handlers: {
+    onStart: (start: QueryStart) => void;
+    onDelta: (text: string) => void;
+  },
+  signal?: AbortSignal,
+): Promise<QueryUsage | null> {
+  let response: Response;
+  try {
+    response = await fetch(buildUrl("/query/stream"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: json(body),
+      credentials: "include",
+      signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    throw new ApiError(
+      `Cannot reach the Memora API at ${BASE_URL}. Is the backend running?`,
+      0,
+    );
+  }
+  if (
+    response.status === 401 &&
+    typeof window !== "undefined" &&
+    window.location.pathname != "/login"
+  ) {
+    window.location.href = "/login";
+  }
+  if (!response.ok || !response.body) {
+    const text = await response.text();
+    const payload = text ? safeJson(text) : null;
+    throw new ApiError(
+      extractDetail(payload) ?? `Request failed with status ${response.status}`,
+      response.status,
+      payload?.code,
+    );
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let usage: QueryUsage | null = null;
+
+  const dispatch = (block: string) => {
+    let event = "message";
+    const data: string[] = [];
+    for (const line of block.split("\n")) {
+      if (line.startsWith("event:")) event = line.slice(6).trim();
+      else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+    }
+    if (!data.length) return;
+    const payload = JSON.parse(data.join("\n"));
+    if (event === "start") handlers.onStart(payload as QueryStart);
+    else if (event === "delta") handlers.onDelta(payload.text as string);
+    else if (event === "done") usage = payload.usage as QueryUsage;
+    else if (event === "error") throw new ApiError(payload.message, 502);
+  };
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      dispatch(buffer.slice(0, sep));
+      buffer = buffer.slice(sep + 2);
+    }
+  }
+  if (buffer.trim()) dispatch(buffer);
+  return usage;
 }
 
 function safeJson(text: string): any {
@@ -470,6 +553,29 @@ export const api = {
   },
 
   retrieval: {
+    /** Same as `ask`, but the answer streams in as the model writes it. */
+    askStream: (
+      query: string,
+      handlers: {
+        onStart: (start: QueryStart) => void;
+        onDelta: (text: string) => void;
+      },
+      options?: {
+        scope?: { subjectId?: string; sourceId?: string };
+        retrievalMode?: "hybrid" | "dense";
+        signal?: AbortSignal;
+      },
+    ) =>
+      streamQuery(
+        {
+          query,
+          subject_id: options?.scope?.subjectId,
+          source_id: options?.scope?.sourceId,
+          retrieval_mode: options?.retrievalMode,
+        },
+        handlers,
+        options?.signal,
+      ),
     /** Ask Memora a question; get a grounded answer + supporting chunks. */
     ask: (
       query: string,

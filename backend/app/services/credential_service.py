@@ -34,6 +34,9 @@ class AuthContext:
         )
 
 
+LAST_USED_WRITE_INTERVAL_SECONDS = 300
+
+
 def create_credential(
     db: Session, application_id: uuid.UUID, payload: CredentialCreate, scope: Scope
 ) -> CredentialCreated:
@@ -162,7 +165,12 @@ def authenticate_token(db: Session, raw_token: str) -> AuthContext:
     if tenant is None or tenant.status != ResourceStatus.ACTIVE.value:
         raise AuthenticationError(generic)
 
-    credential.last_used_at = datetime.now(UTC)
-    db.commit()
+    # `last_used_at` is a coarse "when was this token last seen" field: write
+    # it at most every few minutes instead of a commit on every request.
+    now = datetime.now(UTC)
+    last = credential.last_used_at
+    if last is None or (now - last).total_seconds() >= LAST_USED_WRITE_INTERVAL_SECONDS:
+        credential.last_used_at = now
+        db.commit()
 
     return AuthContext(credential=credential, application=application, tenant=tenant)

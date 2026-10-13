@@ -69,8 +69,16 @@ class LLMClient(Protocol):
         """Ask for a single JSON object and return it parsed."""
         ...
 
-    def chat_text(self, model: str, system: str, user: str) -> tuple[str, LLMUsage]:
+    def chat_text(
+        self, model: str, system: str, user: str, interactive: bool = False
+    ) -> tuple[str, LLMUsage]:
         """Ask for free text and return it cleaned."""
+        ...
+
+    def chat_text_stream(
+        self, model: str, system: str, user: str, interactive: bool = False
+    ):
+        """Stream free text: yields ("delta", str) pieces, then ("usage", LLMUsage)."""
         ...
 
     def read_image(
@@ -103,6 +111,38 @@ def clean_text(text: str | None) -> str:
     """Drop reasoning blocks and code fences some models wrap answers in."""
     text = _THINK.sub("", text or "").strip()
     return _FENCE.sub("", text).strip()
+
+
+def _strip_think_stream(pieces):
+    """Drop a leading <think>...</think> block from a stream of text pieces."""
+    open_tag, close_tag = "<think>", "</think>"
+    buffer = ""
+    state = "start"  # start -> thinking | pass
+    for piece in pieces:
+        if state == "pass":
+            yield piece
+            continue
+        buffer += piece
+        if state == "start":
+            head = buffer.lstrip()
+            if head.startswith(open_tag):
+                state = "thinking"
+                buffer = head[len(open_tag):]
+            elif open_tag.startswith(head):
+                continue  # could still turn out to be the opening tag
+            else:
+                state = "pass"
+                yield buffer
+                buffer = ""
+                continue
+        if state == "thinking" and close_tag in buffer:
+            rest = buffer.split(close_tag, 1)[1].lstrip()
+            state = "pass"
+            buffer = ""
+            if rest:
+                yield rest
+    if state == "start" and buffer:
+        yield buffer
 
 
 def parse_json_object(text: str | None) -> dict:
@@ -187,7 +227,13 @@ class NvidiaLLMClient:
                     )
         return self._clients[provider]
 
-    def _create(self, optional: dict, provider: str | None = None, **kwargs):
+    def _create(
+        self,
+        optional: dict,
+        provider: str | None = None,
+        interactive: bool = False,
+        **kwargs,
+    ):
         """Call chat.completions, dropping optional parameters a model rejects.
 
         Providers differ in what they accept (JSON mode, thinking switches), so
@@ -203,7 +249,7 @@ class NvidiaLLMClient:
                 # Retry policy (timeouts never retried, 429 honors
                 # Retry-After) is applied per call, in one place. The
                 # shared limiter caps in-flight calls per provider bucket.
-                with limiter.limited(provider or self.provider):
+                with limiter.limited(provider or self.provider, interactive):
                     response = call_with_retry(
                         lambda: sdk.chat.completions.create(**kwargs, **extras),
                         self.settings,
@@ -283,7 +329,9 @@ class NvidiaLLMClient:
         except (ValueError, json.JSONDecodeError) as exc:
             raise LLMError(f"model did not return valid JSON: {exc}", usage=total) from exc
 
-    def chat_text(self, model: str, system: str, user: str) -> tuple[str, LLMUsage]:
+    def chat_text(
+        self, model: str, system: str, user: str, interactive: bool = False
+    ) -> tuple[str, LLMUsage]:
         """Free-text generation: the grounded-answer half of the retrieval
         pipeline. Same optional-parameter shedding as every other call."""
         messages = [
@@ -297,6 +345,7 @@ class NvidiaLLMClient:
         started = time.monotonic()
         response = self._create(
             optional,
+            interactive=interactive,
             model=model,
             messages=messages,
             temperature=0.2,
@@ -307,6 +356,62 @@ class NvidiaLLMClient:
         if not text:
             raise LLMError("model returned an empty answer", usage=usage)
         return text, usage
+
+    def chat_text_stream(
+        self, model: str, system: str, user: str, interactive: bool = False
+    ):
+        """Streamed free-text generation: yields ("delta", str) pieces as the
+        model produces them, then one ("usage", LLMUsage) at the end.
+
+        Same prompt and sampling as `chat_text`, so the answer is the same;
+        only the delivery differs. Reasoning blocks are filtered out of the
+        stream. A failure before the first token raises like `chat_text`; one
+        mid-stream surfaces as an LLMError after the deltas already yielded.
+        """
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+        optional = {
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+            "stream_options": {"include_usage": True},
+        }
+        started = time.monotonic()
+        stream = self._create(
+            optional,
+            interactive=interactive,
+            model=model,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=self.settings.llm_max_output_tokens,
+            stream=True,
+        )
+        usage_obj = None
+        emitted = False
+
+        def deltas():
+            nonlocal usage_obj
+            for event in stream:
+                if getattr(event, "usage", None) is not None:
+                    usage_obj = event
+                if event.choices:
+                    piece = event.choices[0].delta.content
+                    if piece:
+                        yield piece
+
+        try:
+            for piece in _strip_think_stream(deltas()):
+                emitted = True
+                yield ("delta", piece)
+        except Exception as exc:  # noqa: BLE001 - mid-stream transport errors
+            raise LLMError(f"answer stream failed: {exc}") from exc
+        if not emitted:
+            raise LLMError("model returned an empty answer")
+        usage = self._usage(usage_obj, started) if usage_obj else LLMUsage(
+            latency_ms=int((time.monotonic() - started) * 1000)
+        )
+        usage.shed_params = getattr(stream, "_memora_shed_params", []) or []
+        yield ("usage", usage)
 
     def read_image(
         self,

@@ -21,7 +21,9 @@ chunks the caller already owns. No new tables; the pipeline reads
 """
 
 import logging
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from sqlalchemy import text
@@ -214,6 +216,7 @@ def hybrid_candidate_search(
     scope: Scope,
     subject_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
+    lexical_rows: list | None = None,
 ) -> tuple[list[Candidate], dict]:
     """Stages 1a + 1b + fusion: dense HNSW + lexical tsvector, fused by RRF.
 
@@ -229,11 +232,12 @@ def hybrid_candidate_search(
         subject_id=subject_id, source_id=source_id,
         top_k=settings.retrieval_dense_top_k,
     )
-    lexical_rows = lexical_search(
-        db, query, strategy_id, scope,
-        subject_id=subject_id, source_id=source_id,
-        limit=settings.retrieval_lexical_top_k,
-    )
+    if lexical_rows is None:
+        lexical_rows = lexical_search(
+            db, query, strategy_id, scope,
+            subject_id=subject_id, source_id=source_id,
+            limit=settings.retrieval_lexical_top_k,
+        )
 
     dense_ids = [str(c.chunk_id) for c in dense_rows]
     lexical_ids = [str(row["chunk_id"]) for row in lexical_rows]
@@ -290,7 +294,29 @@ def _load_vectors(db: Session, candidates: list[Candidate]) -> None:
         cand.vector = by_chunk.get(cand.chunk_id) or []
 
 
-def answer_query(
+def _ms(started: float) -> int:
+    return int((time.monotonic() - started) * 1000)
+
+
+@dataclass
+class RetrievalOutcome:
+    """Everything stages 0-3 produce, before the answer is generated."""
+
+    query: str
+    strategy: object
+    final: list
+    candidates: list
+    mmr_picked: list
+    rerank_pool: list
+    ranked: list
+    hybrid: bool
+    stage_trace: dict
+    timings: dict
+    # Set when nothing in scope is embedded: the finished empty answer.
+    no_context: dict | None = None
+
+
+def retrieve_context(
     db: Session,
     scope: Scope,
     query: str,
@@ -298,12 +324,10 @@ def answer_query(
     source_id: uuid.UUID | None = None,
     strategy_id: uuid.UUID | None = None,
     retrieval_mode: str | None = None,
-) -> dict:
-    """Run the full pipeline for one query and return the answer + evidence.
-
-    Returns a dict with the answer, the supporting chunks (with per-stage
-    scores), the strategy used, and usage totals for observability.
-    """
+) -> RetrievalOutcome:
+    """Stages 0-3: embed, search, MMR, rerank. Needs the DB session; the
+    answer step after it does not (so a streaming route can finish with the
+    session before the long LLM call)."""
     settings = get_settings()
     query = (query or "").strip()
     if not query:
@@ -321,12 +345,41 @@ def answer_query(
 
         get_source(db, source_id, scope)
 
-    # --- Stage 0: query embedding (same strategy as the stored vectors) ------
-    embedded = embedding_service.embed_query(db, query, strategy_id=strategy_id)
-    query_vector = embedded["vector"]
-    strategy = embedding_service.get_strategy(
-        db, uuid.UUID(embedded["strategy_id"])
-    )
+    # --- Stage 0 + 1b: query embedding (network) overlapped with the lexical
+    # branch (database). The lexical branch needs only the query text, so it
+    # runs on this thread's session while the embedding call is in flight.
+    # Only plain data crosses threads; the Session stays here.
+    timings: dict[str, int] = {}
+    hybrid = settings.retrieval_hybrid_enabled
+    if retrieval_mode == "hybrid":
+        hybrid = True
+    elif retrieval_mode == "dense":
+        hybrid = False
+
+    t0 = time.monotonic()
+    strategy = embedding_service.prepare_query_strategy(db, strategy_id)
+    cfg = strategy.config
+    timings["strategy_ms"] = _ms(t0)
+
+    def _embed() -> tuple[list[float], float]:
+        started = time.monotonic()
+        vector, _, _ = embedding_service.embed_query_with_config(cfg, query)
+        return vector, started
+
+    lexical_rows = None
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        embed_future = pool.submit(_embed)
+        if hybrid:
+            t_lex = time.monotonic()
+            lexical_rows = lexical_search(
+                db, query, strategy.id, scope,
+                subject_id=subject_id, source_id=source_id,
+                limit=settings.retrieval_lexical_top_k,
+            )
+            timings["lexical_ms"] = _ms(t_lex)
+        query_vector, _ = embed_future.result()
+    timings["embed_and_lexical_ms"] = _ms(t0)
 
     # --- Stage 1: candidate search (hybrid or dense-only) ----------------------
     # Hybrid: dense HNSW + lexical tsvector -> RRF fusion. The dense-only path
@@ -334,16 +387,13 @@ def answer_query(
     # experiment runs can be compared on the same deployment. A per-request
     # `retrieval_mode` ("hybrid" | "dense") overrides the server default, so
     # the console can switch modes per question.
-    hybrid = settings.retrieval_hybrid_enabled
-    if retrieval_mode == "hybrid":
-        hybrid = True
-    elif retrieval_mode == "dense":
-        hybrid = False
     stage_trace: dict = {}
+    t0 = time.monotonic()
     if hybrid:
         candidates, stage_trace = hybrid_candidate_search(
             db, query, query_vector, strategy.id, scope,
             subject_id=subject_id, source_id=source_id,
+            lexical_rows=lexical_rows,
         )
         log.info(
             "retrieval: query=%r scope=%s hybrid dense=%d lexical=%d overlap=%d fused=%d",
@@ -363,10 +413,15 @@ def answer_query(
             "retrieval: query=%r scope=%s hnsw_candidates=%d",
             query[:80], "console" if scope.is_console else "credential", len(candidates),
         )
+    timings["search_ms"] = _ms(t0)
     if not candidates:
-        return _no_context_answer(query, strategy, stage_trace, settings)
+        return RetrievalOutcome(
+            query, strategy, [], [], [], [], [], hybrid, stage_trace, timings,
+            no_context=_no_context_answer(query, strategy, stage_trace, settings),
+        )
 
     # --- Stage 2: MMR ----------------------------------------------------------
+    t0 = time.monotonic()
     _load_vectors(db, candidates)
     mmr_picked = mmr_select(
         query_vector,
@@ -374,6 +429,7 @@ def answer_query(
         top_k=settings.retrieval_mmr_top_k,
         lambda_=settings.retrieval_mmr_lambda,
     )
+    timings["mmr_ms"] = _ms(t0)
 
     # --- Stage 3: reranker -----------------------------------------------------
     # The reranker sees `retrieval_rerank_top_k` diversified candidates (not
@@ -381,6 +437,7 @@ def answer_query(
     # below the final cut.
     rerank_pool = mmr_picked[: settings.retrieval_rerank_top_k]
     passages = [c.embedding_text or c.content for c in rerank_pool]
+    t0 = time.monotonic()
     try:
         ranked = get_reranker().rerank(query, passages)
     except RerankerError as exc:
@@ -396,38 +453,97 @@ def answer_query(
             cand = rerank_pool[result.index]
             cand.rerank_score = result.score
             final.append(cand)
+    timings["rerank_ms"] = _ms(t0)
+
+    return RetrievalOutcome(
+        query, strategy, final, candidates, mmr_picked, rerank_pool, ranked,
+        hybrid, stage_trace, timings,
+    )
+
+
+def _retrieval_payload(o: RetrievalOutcome) -> dict:
+    return {
+        "hnsw_candidates": len(o.candidates),
+        "mmr_candidates": len(o.mmr_picked),
+        "final_chunks": len(o.final),
+        "reranker_used": bool(o.ranked),
+        # Hybrid-retrieval trace (docs/embedding-retrieval.md).
+        "dense_candidate_count": o.stage_trace.get("dense_candidate_count", 0),
+        "lexical_candidate_count": o.stage_trace.get("lexical_candidate_count", 0),
+        "fused_candidate_count": o.stage_trace.get("fused_candidate_count", 0),
+        "overlap_candidate_count": o.stage_trace.get("overlap_candidate_count", 0),
+        "mmr_candidate_count": len(o.mmr_picked),
+        "reranked_candidate_count": len(o.rerank_pool),
+        "final_candidate_count": len(o.final),
+        "lexical_enabled": o.hybrid,
+        "fusion_method": "rrf" if o.hybrid else "none",
+        "timings_ms": o.timings,
+    }
+
+
+def answer_query(
+    db: Session,
+    scope: Scope,
+    query: str,
+    subject_id: uuid.UUID | None = None,
+    source_id: uuid.UUID | None = None,
+    strategy_id: uuid.UUID | None = None,
+    retrieval_mode: str | None = None,
+) -> dict:
+    """Run the full pipeline for one query and return the answer + evidence.
+
+    Returns a dict with the answer, the supporting chunks (with per-stage
+    scores), the strategy used, and usage totals for observability.
+    """
+    outcome = retrieve_context(
+        db, scope, query, subject_id, source_id, strategy_id, retrieval_mode
+    )
+    if outcome.no_context is not None:
+        return outcome.no_context
 
     # --- Stage 4: LLM generation -----------------------------------------------
-    answer, usage = _generate_answer(query, final)
-
+    t0 = time.monotonic()
+    answer, usage = _generate_answer(outcome.query, outcome.final)
+    outcome.timings["llm_ms"] = _ms(t0)
     return {
-        "query": query,
+        "query": outcome.query,
         "answer": answer,
-        "strategy_id": str(strategy.id),
-        "strategy_name": strategy.name,
-        "chunks": [_chunk_payload(c) for c in final],
-        "retrieval": {
-            "hnsw_candidates": len(candidates),
-            "mmr_candidates": len(mmr_picked),
-            "final_chunks": len(final),
-            "reranker_used": bool(ranked),
-            # Hybrid-retrieval trace (docs/embedding-retrieval.md).
-            "dense_candidate_count": stage_trace.get("dense_candidate_count", 0),
-            "lexical_candidate_count": stage_trace.get("lexical_candidate_count", 0),
-            "fused_candidate_count": stage_trace.get("fused_candidate_count", 0),
-            "overlap_candidate_count": stage_trace.get("overlap_candidate_count", 0),
-            "mmr_candidate_count": len(mmr_picked),
-            "reranked_candidate_count": len(rerank_pool),
-            "final_candidate_count": len(final),
-            "lexical_enabled": hybrid,
-            "fusion_method": "rrf" if hybrid else "none",
-        },
+        "strategy_id": str(outcome.strategy.id),
+        "strategy_name": outcome.strategy.name,
+        "chunks": [_chunk_payload(c) for c in outcome.final],
+        "retrieval": _retrieval_payload(outcome),
         "usage": {
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
             "latency_ms": usage.latency_ms,
         },
     }
+
+
+def stream_start(outcome: RetrievalOutcome) -> dict:
+    """The first SSE event: evidence and trace, sent before the LLM runs."""
+    return {
+        "query": outcome.query,
+        "strategy_id": str(outcome.strategy.id),
+        "strategy_name": outcome.strategy.name,
+        "chunks": [_chunk_payload(c) for c in outcome.final],
+        "retrieval": _retrieval_payload(outcome),
+    }
+
+
+def stream_answer(outcome: RetrievalOutcome):
+    """Stage 4 as a stream: yields ("delta", text) then ("usage", LLMUsage).
+    Does not touch the database."""
+    if not outcome.final:
+        yield ("delta", (outcome.no_context or {}).get("answer") or _NO_CONTEXT_TEXT)
+        yield ("usage", _EmptyUsage())
+        return
+    user = _answer_prompt(outcome.query, outcome.final)
+    client = get_llm_client()
+    model = get_settings().llm_answer_model
+    yield from client.chat_text_stream(
+        model, _ANSWER_SYSTEM, user, interactive=True
+    )
 
 
 def _no_context_answer(query: str, strategy, stage_trace: dict | None = None, settings=None) -> dict:
@@ -478,15 +594,29 @@ _ANSWER_SYSTEM = (
 )
 
 
+_NO_CONTEXT_TEXT = (
+    "The available knowledge does not contain enough information to "
+    "answer that question."
+)
+
+
 def _generate_answer(query: str, chunks: list[Candidate]) -> tuple[str, object]:
     """Stage 4: send the query + final chunks to the generation LLM."""
     if not chunks:
-        return (
-            "The available knowledge does not contain enough information to "
-            "answer that question.",
-            _EmptyUsage(),
-        )
+        return _NO_CONTEXT_TEXT, _EmptyUsage()
 
+    user = _answer_prompt(query, chunks)
+    client = get_llm_client()
+    model = get_settings().llm_answer_model
+    answer, usage = client.chat_text(model, _ANSWER_SYSTEM, user, interactive=True)
+    log.info(
+        "retrieval: answered query=%r chunks=%d tokens=%d/%d",
+        query[:80], len(chunks), usage.prompt_tokens, usage.completion_tokens,
+    )
+    return answer, usage
+
+
+def _answer_prompt(query: str, chunks: list[Candidate]) -> str:
     parts = []
     for i, c in enumerate(chunks, start=1):
         section = " › ".join(c.section_path) if c.section_path else ""
@@ -501,20 +631,11 @@ def _generate_answer(query: str, chunks: list[Candidate]) -> tuple[str, object]:
         parts.append(f"{header}\n{c.content}")
 
     context = "\n\n".join(parts)
-    user = (
+    return (
         f"Context chunks:\n\n{context}\n\n"
         f"Question: {query}\n\n"
         "Answer the question using only the context above."
     )
-
-    client = get_llm_client()
-    model = get_settings().llm_answer_model
-    answer, usage = client.chat_text(model, _ANSWER_SYSTEM, user)
-    log.info(
-        "retrieval: answered query=%r chunks=%d tokens=%d/%d",
-        query[:80], len(chunks), usage.prompt_tokens, usage.completion_tokens,
-    )
-    return answer, usage
 
 
 class _EmptyUsage:

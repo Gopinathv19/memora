@@ -21,6 +21,7 @@ from app.graph.models import (
     GraphTextUnit,
 )
 from app.graph.ontology import Ontology
+from app.llm.cache import cached_chat_json
 from app.llm.client import LLMClient, LLMError
 from app.schemas.enums import ModelRole
 
@@ -120,8 +121,9 @@ class GraphExtractor:
 
     def extract(self, unit: GraphTextUnit) -> ChunkExtraction:
         try:
-            raw, usage = self.client.chat_json(
-                self.model, self.system, prompts.user_message(unit.text, _pages(unit))
+            raw, usage, _ = cached_chat_json(
+                self.client, self.model, self.system,
+                prompts.user_message(unit.text, _pages(unit)),
             )
         except LLMError as exc:
             message = (exc.message or str(exc))[:500]

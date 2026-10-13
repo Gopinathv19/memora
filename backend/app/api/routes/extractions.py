@@ -10,7 +10,7 @@ from app.api.deps import (
     Storage,
 )
 from app.schemas.extraction import ExtractionRead, ExtractionRequest, ExtractionSummary
-from app.services import extraction_service, graph_service
+from app.services import extraction_service, job_service
 
 router = APIRouter(prefix="/sources/{source_id}/extractions", tags=["extractions"])
 
@@ -34,10 +34,10 @@ def start_extraction(
     a knowledge-graph build follows a successful run.
     """
     extraction = extraction_service.start_extraction(db, source_id, payload, scope)
-    background.add_task(extraction_service.run_extraction, extraction.id, storage, agent)
-    if payload.build_graph:
-        # Background tasks run in order, so this starts after the run ends.
-        background.add_task(graph_service.build_after_extraction, extraction.id, graph)
+    job_service.dispatch_extraction(
+        db, background, extraction.id,
+        storage=storage, agent=agent, graph=graph, build_graph=payload.build_graph,
+    )
     return extraction
 
 

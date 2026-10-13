@@ -27,7 +27,7 @@ from app.schemas.source import (
     SourceRead,
     SourceUpdate,
 )
-from app.services import extraction_service, graph_service, source_service
+from app.services import extraction_service, job_service, source_service
 from app.storage.local import MAX_UPLOAD_BYTES
 
 subject_router = APIRouter(prefix="/subjects/{subject_id}/sources", tags=["sources"])
@@ -100,13 +100,10 @@ def upload_source(
             ),
             scope,
         )
-        background.add_task(
-            extraction_service.run_extraction, extraction.id, storage, agent
+        job_service.dispatch_extraction(
+            db, background, extraction.id,
+            storage=storage, agent=agent, graph=graph, build_graph=build_graph,
         )
-        if build_graph:
-            background.add_task(
-                graph_service.build_after_extraction, extraction.id, graph
-            )
         db.refresh(source)
     return source
 
