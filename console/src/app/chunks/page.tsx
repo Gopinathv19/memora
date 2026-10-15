@@ -407,9 +407,9 @@ export default function ChunksPage() {
 const TYPE_COLORS: Record<string, string> = {
   text: "bg-surface-strong text-ink-secondary",
   table: "bg-accent-soft text-accent",
-  figure: "bg-amber-100 text-amber-800",
+  figure: "bg-warn-soft text-warn",
   mixed: "bg-surface-strong text-ink-secondary",
-  key_value: "bg-emerald-100 text-emerald-800",
+  key_value: "bg-ok-soft text-ok",
 };
 
 function ChunkCard({ chunk }: { chunk: RetrievalChunk }) {

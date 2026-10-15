@@ -61,6 +61,7 @@ def upload_source(
         default=None, max_length=MAX_INSTRUCTIONS_CHARS
     ),
     build_graph: bool = Form(default=False),
+    index_graph_rag: bool = Form(default=False),
 ):
     """Register a source by posting the file itself.
 
@@ -72,7 +73,8 @@ def upload_source(
     `pending`. With `extract=true`, extraction version 1 starts in the
     background as soon as the row is committed; the response returns at once
     with the source in `processing`. Adding `build_graph=true` also builds
-    the knowledge graph once that extraction succeeds.
+    the knowledge graph once that extraction succeeds, and `index_graph_rag=true`
+    also builds the Graph RAG index of the subject after that (it implies `build_graph`).
     """
     if file.size is not None and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(
@@ -103,6 +105,7 @@ def upload_source(
         job_service.dispatch_extraction(
             db, background, extraction.id,
             storage=storage, agent=agent, graph=graph, build_graph=build_graph,
+            index_graph_rag=index_graph_rag,
         )
         db.refresh(source)
     return source

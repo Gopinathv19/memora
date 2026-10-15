@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect } from "react";
 
 import { api } from "@/lib/api";
+import { graphrag } from "@/lib/graphrag-api";
+import type { IndexStatus } from "@/lib/graphrag-types";
 import { formatDate } from "@/lib/format";
 import type { GraphBuild, GraphBuildSummary, Source } from "@/lib/types";
 import { useMutation, useResource } from "@/lib/useResource";
@@ -82,6 +84,14 @@ export function GraphPanel({ source }: { source: Source }) {
           >
             View graph
           </Link>
+          {hasBuilds && (
+            <Link
+              href={`/compare/inspect?source=${source.id}`}
+              className="inline-flex items-center rounded-md border border-transparent px-2 h-[34px] text-sm text-ink-secondary hover:text-ink hover:underline"
+            >
+              Inspect this file's graph
+            </Link>
+          )}
           {partial && (
             <Button disabled={start.pending || running} onClick={() => build(true)}>
               Retry failed chunks
@@ -102,6 +112,7 @@ export function GraphPanel({ source }: { source: Source }) {
           <InlineError message={start.error} />
         </div>
       )}
+      {hasBuilds && <GraphRagIndexLine subjectId={source.subject_id} graphBuilding={running} />}
       {builds.loading ? (
         <LoadingState label="Loading graph builds" />
       ) : builds.error ? (
@@ -300,6 +311,53 @@ function Section({
         {title}
       </h3>
       <div className={flush ? "" : "px-4 pb-4"}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The step after the graph build: Graph RAG needs the subject's entities and
+ * facts embedded (and communities summarized) before it can retrieve from them.
+ * A "process fully" upload does this automatically; otherwise the button is on
+ * the Graph RAG pages. Hidden when the status cannot be read (graph not configured).
+ */
+function GraphRagIndexLine({ subjectId, graphBuilding }: { subjectId: string; graphBuilding: boolean }) {
+  const status = useResource<IndexStatus | null>(
+    () => graphrag.status(subjectId).catch(() => null),
+    [subjectId, graphBuilding],
+  );
+  const indexing = status.data?.build?.status === "running";
+  useEffect(() => {
+    if (!graphBuilding && !indexing) return;
+    const timer = setInterval(status.reload, POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphBuilding, indexing]);
+
+  const data = status.data;
+  if (!data) return null;
+  const { entities, entities_embedded: embedded } = data.coverage;
+  let label: string;
+  let tone = "text-ink-secondary";
+  if (data.build?.status === "failed") {
+    label = `Graph RAG index failed: ${data.build.error ?? "unknown error"}`;
+    tone = "text-danger";
+  } else if (indexing) {
+    label = "Graph RAG index: building…";
+  } else if (data.ready) {
+    label = `Graph RAG index: ready (${entities} entities, ${data.coverage.facts} facts, ${data.coverage.communities} communities)`;
+    tone = "text-ok";
+  } else {
+    label = `Graph RAG index: not built yet (${embedded} of ${entities} entities embedded). Build it from the Graph RAG pages.`;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 px-4 pt-3 text-xs" aria-live="polite">
+      <span className={tone}>{label}</span>
+      {data.ready && (
+        <Link href="/compare" className="text-ink-secondary underline hover:text-ink">
+          Open the Arena
+        </Link>
+      )}
     </div>
   );
 }

@@ -110,7 +110,7 @@ export default function GoogleDrivePage() {
       {error && (
         <div className="mt-5">
           <Panel>
-            <div className="px-4 py-3 text-sm text-red-600">{error}</div>
+            <div className="px-4 py-3 text-sm text-danger">{error}</div>
           </Panel>
         </div>
       )}

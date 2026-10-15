@@ -8,7 +8,7 @@ the time the triggering request comes back.
 
 import io
 
-from tests.extraction_fakes import LOREM, make_pdf, table_page, text_page
+from tests.extraction_fakes import LOREM, broken_xref, make_pdf, scanned_pdf, table_page, text_page
 
 
 def _setup(client, name="Acme"):
@@ -81,6 +81,20 @@ def test_upload_with_extract_runs_version_one(client, fake_llm):
     assert run["triggered_by_user_id"] is not None
 
     assert client.get(f"/api/v1/sources/{source_id}").json()["status"] == "completed"
+
+
+def test_a_scan_with_a_damaged_page_index_is_read_by_the_layout_model(client, fake_llm):
+    """Regression: a scanned passbook with a bad cross-reference table failed with
+    "Nothing readable" in milliseconds and never reached a model."""
+    _, _, subject_id = _setup(client)
+    response = _upload(client, subject_id, data=broken_xref(scanned_pdf()), filename="passbook.pdf", extract=True)
+    assert response.status_code == 201, response.text
+    source_id = response.json()["id"]
+    run = client.get(f"/api/v1/sources/{source_id}/extractions/latest").json()
+    assert run["status"] == "completed", run.get("error")
+    assert [(p["page"], p["difficulty"], p["route"]) for p in run["result"]["pages"]] == [(1, "hard", "layout")]
+    assert [c["model"] for c in fake_llm.calls if c["kind"] == "read_image"]  # the layout model was called
+    assert any("repaired" in w for w in run["result"].get("warnings", []))
 
 
 def test_reextract_adds_a_version_and_keeps_the_old_one(client, fake_llm):

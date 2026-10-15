@@ -64,6 +64,11 @@
   --color-muted: #6f6f6f;
   --color-muted-soft: #f1f3f5;
 
+  /* Knowledge-graph strokes (components/SubjectGraph.tsx). */
+  --color-graph-edge: #c3c8ce;
+  --color-graph-edge-lit: #4b5563;
+  --color-graph-arrow: #9aa1a9;
+
   /* Supabase radii are small and uniform: 6px almost everywhere. */
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -76,6 +81,60 @@
     monospace;
 }
 
+/*
+ * Dark theme. Same token names, new values: every component already reads
+ * colour from these variables, so switching `data-theme` on <html> reskins the
+ * whole console. The theme is chosen before first paint by the inline script in
+ * app/layout.tsx (saved choice, else the system setting) and flipped by
+ * ThemeToggle in the top bar. The selector is more specific than the `:root`
+ * block Tailwind emits for @theme, so it wins.
+ */
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-canvas: #111213;
+  --color-panel: #19191b;
+  --color-surface: #202124;
+  --color-surface-strong: #2a2b2f;
+
+  --color-topbar: #161618;
+  --color-topbar-hover: #26272b;
+  --color-rail: #141416;
+
+  --color-ink: #ededee;
+  --color-ink-secondary: #a3a5ab;
+  --color-ink-tertiary: #7d8087;
+
+  --color-line: #2c2d31;
+  --color-line-soft: #232427;
+
+  /* Brand green is already readable on dark; the "accent" (text-on-white
+     green in light mode) becomes the bright brand green. */
+  --color-brand: #3ecf8e;
+  --color-brand-hover: #5bdba2;
+  --color-brand-ink: #003a26;
+
+  --color-accent: #3ecf8e;
+  --color-accent-hover: #6ee7b7;
+  --color-accent-soft: #11291f;
+
+  --color-ok: #4cc38a;
+  --color-ok-soft: #11291f;
+  --color-warn: #e2b350;
+  --color-warn-soft: #2d2410;
+  --color-danger: #f27a73;
+  --color-danger-soft: #331b19;
+  --color-info: #67a9ec;
+  --color-info-soft: #13243a;
+
+  --color-muted: #a3a5ab;
+  --color-muted-soft: #2a2b2f;
+
+  --color-graph-edge: #3d4047;
+  --color-graph-edge-lit: #c9ccd2;
+  --color-graph-arrow: #6b7078;
+}
+
 html,
 body {
   background: var(--color-canvas);
@@ -84,6 +143,14 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Theme switches fade rather than flash. Only the page chrome transitions;
+   individual components snap, which keeps the switch cheap. */
+body {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease;
 }
 
 /* Focus ring: visible for keyboard users, absent for mouse clicks. Green

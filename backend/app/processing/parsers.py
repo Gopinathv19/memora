@@ -288,18 +288,62 @@ def _png(img) -> bytes:
     return out.getvalue()
 
 
-def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> ProcessedDocument:
+def _open_plumber(data: bytes, rendered, warnings: list[str]):
+    """pdfplumber over `data`, repaired through pdfium when it cannot see every page.
+
+    pdfplumber (pdfminer) trusts the file's cross-reference table. Some producers
+    write a broken one (a scanner app that numbers the table from 1 instead of 0
+    shifts every object by one), and then pdfminer cannot find the page tree and
+    reports *zero pages* while pdfium, which rebuilds a broken table by scanning,
+    reads the file fine. A document that loses all its pages here used to end as
+    "Nothing readable was found", with no model ever called. pdfium's page count is
+    the truth: when pdfplumber disagrees, re-save the file through pdfium (which
+    writes a clean table) and read that instead.
+    """
     import pdfplumber
+
+    expected = len(rendered)
+    plumber = None
+    try:
+        plumber = pdfplumber.open(io.BytesIO(data))
+        if len(plumber.pages) >= expected:
+            return plumber
+    except Exception:  # pdfminer raises a zoo of types; fall through to the repair
+        pass
+    if plumber is not None:
+        plumber.close()
+    try:
+        repaired = io.BytesIO()
+        rendered.save(repaired)
+        plumber = pdfplumber.open(io.BytesIO(repaired.getvalue()))
+    except Exception as exc:
+        raise UnsupportedDocumentError(f"PDF could not be opened: {exc}") from exc
+    if len(plumber.pages) < expected:
+        plumber.close()
+        raise UnsupportedDocumentError(
+            f"The PDF has {expected} page(s) but its structure could not be read"
+        )
+    warnings.append(
+        "The PDF's internal page index was damaged and was repaired before reading"
+    )
+    return plumber
+
+
+def parse_pdf(data: bytes, settings: Settings, mode: ExtractionMode) -> ProcessedDocument:
     import pypdfium2 as pdfium
 
     warnings: list[str] = []
     units: list[ReadingUnit] = []
     budget = _ImageBudget(settings.extraction_max_images, warnings)
     try:
-        plumber = pdfplumber.open(io.BytesIO(data))
         rendered = pdfium.PdfDocument(data)
-    except Exception as exc:  # pdfminer/pdfium raise a zoo of types
+    except Exception as exc:  # pdfium raises a zoo of types
         raise UnsupportedDocumentError(f"PDF could not be opened: {exc}") from exc
+    try:
+        plumber = _open_plumber(data, rendered, warnings)
+    except BaseException:
+        rendered.close()
+        raise
 
     deferred = settings.extraction_parallel_render
     # One lock per document: pdfium renders of the same PdfDocument must

@@ -516,7 +516,11 @@ class NemotronExtractionAgent:
                 sections.append(f"{marker}\n{r.text.strip()}")
 
         if not sections:
-            raise ExtractionFailed("Nothing readable was found in the document", usage)
+            raise ExtractionFailed(
+                "Nothing readable was found in the document "
+                f"({len(readings)} page(s) or section(s) examined, none produced any text)",
+                usage,
+            )
 
         content = "\n\n".join(sections)
 

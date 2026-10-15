@@ -458,7 +458,7 @@ export function SubjectGraph({ subjectId }: { subjectId: string }) {
                   markerHeight="7"
                   orient="auto-start-reverse"
                 >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa1a9" />
+                  <path d="M 0 0 L 10 5 L 0 10 z" style={{ fill: "var(--color-graph-arrow)" }} />
                 </marker>
               </defs>
 
@@ -482,7 +482,7 @@ export function SubjectGraph({ subjectId }: { subjectId: string }) {
                       y1={a.y}
                       x2={ex}
                       y2={ey}
-                      stroke={lit ? "#4b5563" : "#c3c8ce"}
+                      style={{ stroke: lit ? "var(--color-graph-edge-lit)" : "var(--color-graph-edge)" }}
                       strokeWidth={lit ? 1.8 : 1.1}
                       markerEnd="url(#graph-arrow)"
                     >
@@ -495,7 +495,7 @@ export function SubjectGraph({ subjectId }: { subjectId: string }) {
                         textAnchor="middle"
                         className="fill-ink-secondary"
                         fontSize={10}
-                        style={{ paintOrder: "stroke", stroke: "#f8f9fa", strokeWidth: 3 }}
+                        style={{ paintOrder: "stroke", stroke: "var(--color-surface)", strokeWidth: 3 }}
                       >
                         {r.relation}
                       </text>
@@ -525,7 +525,7 @@ export function SubjectGraph({ subjectId }: { subjectId: string }) {
                     <circle
                       r={r}
                       fill={colorOf(e.entity_type)}
-                      stroke={e.entity_id === selected ? "#171717" : "#ffffff"}
+                      style={{ stroke: e.entity_id === selected ? "var(--color-ink)" : "var(--color-panel)" }}
                       strokeWidth={e.entity_id === selected ? 2.5 : 1.5}
                     />
                     <text
@@ -533,7 +533,7 @@ export function SubjectGraph({ subjectId }: { subjectId: string }) {
                       textAnchor="middle"
                       fontSize={LABEL_FONT}
                       className="fill-ink"
-                      style={{ paintOrder: "stroke", stroke: "#f8f9fa", strokeWidth: 3 }}
+                      style={{ paintOrder: "stroke", stroke: "var(--color-surface)", strokeWidth: 3 }}
                     >
                       {truncate(e.name)}
                     </text>

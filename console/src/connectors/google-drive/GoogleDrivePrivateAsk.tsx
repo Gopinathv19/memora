@@ -24,9 +24,9 @@ const MAX_FILES = 10; // mirrors PRIVATE_RAG_MAX_FILES on the backend
 
 function reportBadge(report: PrivateFileReport) {
   const styles: Record<string, string> = {
-    processed: "bg-emerald-50 text-emerald-700",
-    skipped: "bg-amber-50 text-amber-700",
-    failed: "bg-red-50 text-red-700",
+    processed: "bg-ok-soft text-ok",
+    skipped: "bg-warn-soft text-warn",
+    failed: "bg-danger-soft text-danger",
   };
   return (
     <span

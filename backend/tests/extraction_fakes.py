@@ -153,6 +153,21 @@ def scanned_pdf() -> bytes:
     return out.getvalue()
 
 
+def broken_xref(pdf: bytes) -> bytes:
+    """The same PDF with its cross-reference table numbered from 1 instead of 0.
+
+    Some scanner apps write the table this way (a real bank passbook scan did): every
+    object is then one slot off, pdfminer/pdfplumber cannot find the page tree and
+    reports zero pages, while pdfium rebuilds the table and reads the file. The change
+    is one character, so every offset stays valid for pdfium.
+    """
+    import re
+
+    match = re.search(rb"xref(\r\n|\r|\n)0 ", pdf)
+    assert match, "no cross-reference table to damage (object streams?)"
+    return pdf[: match.start()] + match.group(0).replace(b"0 ", b"1 ") + pdf[match.end() :]
+
+
 LOREM = [
     "Memora extraction test document. This page is plain digital text.",
     "It has several full lines so the text layer is clearly reliable.",

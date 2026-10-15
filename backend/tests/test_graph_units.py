@@ -101,6 +101,11 @@ def test_canonical_keys():
     assert canonical_key("Corp", "COMPANY") == "corp"  # never stripped to nothing
     assert acronym("international_business_machines") == "ibm"
     assert acronym("microsoft") is None
+    # Keys with empty segments (identifiers like __init__) used to crash with IndexError,
+    # which failed every graph build that met one.
+    assert acronym("init__py_module") == "ipm"
+    assert acronym("__init__") is None
+    assert acronym("_private_name_") == "pn"
 
 
 # --- chunking ------------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { TenantSwitcher } from "@/components/TenantSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
  * The console chrome: a white breadcrumb bar above a narrow icon rail.
@@ -34,6 +35,7 @@ type IconName =
   | "chunks"
   | "embeddings"
   | "ask"
+  | "compare"
   | "credentials"
   | "gdrive"
   | "docs";
@@ -56,6 +58,8 @@ const ICON_PATHS: Record<IconName, string> = {
     "M12 3a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM12 17.5V19M12 7.5a4.5 4.5 0 0 0-4.5 4.5M9.75 12h.01M14.25 12h.01",
   credentials:
     "M14.5 3a6.5 6.5 0 0 1 0 13 6.6 6.6 0 0 1-2.4-.45L10 18H8v2H6v2H3v-3l6.6-6.6A6.5 6.5 0 0 1 14.5 3ZM16 7.5h.01",
+  compare:
+    "M6 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM18 15a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM18 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4ZM6 9v4a2 2 0 0 0 2 2h8M18 9v2",
   docs: "M6 3h8l4 4v14H6zM14 3v4h4M9 12h6M9 16h6",
   gdrive:
     "M8.5 4h7L21 14l-3 6H6L3 14 8.5 4M8.5 4l3.5 6M6 20l3.5-6",
@@ -115,6 +119,16 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: "Retrieval",
     items: [{ href: "/ask", label: "Ask Memora", icon: "ask" }],
+  },
+  {
+    title: "Graph RAG",
+    items: [
+      { href: "/compare", label: "Arena", icon: "compare" },
+      { href: "/compare/benchmarks", label: "Benchmarks", icon: "chunks" },
+      { href: "/compare/advisor", label: "Advisor", icon: "ask" },
+      { href: "/compare/graph", label: "Graph explorer", icon: "subjects" },
+      { href: "/compare/inspect", label: "Source inspector", icon: "sources" },
+    ],
   },
   {
     title: "Connectors",
@@ -410,6 +424,7 @@ function TopBar({
 
       <div className="ml-auto flex items-center gap-2">
         <TenantSwitcher />
+        <ThemeToggle />
         <UserMenu user={user} />
       </div>
     </header>

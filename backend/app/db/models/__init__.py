@@ -24,6 +24,7 @@ from app.db.models.embedding import ChunkEmbedding, EmbeddingModel, EmbeddingStr
 from app.db.models.extraction import ExtractionUsage, SourceExtraction
 from app.db.models.graph import SourceGraphBuild
 from app.db.models.job import Job
+from app.db.models.rag_run import BenchmarkRun, RagRun
 from app.db.models.source import Source
 from app.db.models.subject import Subject
 from app.db.models.tenant import Tenant
@@ -31,6 +32,8 @@ from app.db.models.users import Users
 from app.db.models.auth_user import Authenticated_User
 
 __all__ = [
+    "RagRun",
+    "BenchmarkRun",
     "Tenant",
     "Application",
     "ApiCredential",

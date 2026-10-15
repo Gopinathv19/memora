@@ -96,6 +96,11 @@ class ExtractionRequest(BaseModel):
         description="When the run succeeds, build the source's knowledge graph "
         "from it straight away (same as POST /sources/{id}/graph afterwards).",
     )
+    index_graph_rag: bool = Field(
+        default=False,
+        description="Also build the Graph RAG index (entity and fact embeddings, communities) "
+        "of the source's subject once the graph build finishes. Implies `build_graph`.",
+    )
 
     @field_validator("instructions")
     @classmethod

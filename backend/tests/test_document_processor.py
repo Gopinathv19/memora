@@ -8,7 +8,9 @@ from app.core.config import Settings
 from app.processing import DocumentProcessor, UnsupportedDocumentError
 from app.processing.triage import PageSignals, classify, junk_ratio
 from app.schemas.enums import ExtractionMode, ExtractionRoute, PageDifficulty
-from tests.extraction_fakes import LOREM, make_pdf, png_bytes, scanned_pdf, table_page, text_page
+from tests.extraction_fakes import (
+    LOREM, broken_xref, make_pdf, png_bytes, scanned_pdf, table_page, text_page,
+)
 
 PDF = "application/pdf"
 
@@ -53,6 +55,41 @@ def test_scanned_page_without_text_is_hard(processor):
     assert unit.signals["text_chars"] == 0
     assert unit.difficulty == PageDifficulty.HARD
     assert unit.page_image is not None or unit.render_fn is not None
+
+
+def test_a_pdf_with_a_damaged_page_index_is_repaired_not_dropped(processor):
+    """A scan whose cross-reference table is off by one used to parse to zero pages,
+    and fail as "Nothing readable" without any model being called."""
+    import io
+
+    import pdfplumber
+
+    damaged = broken_xref(scanned_pdf())
+    # the precondition: pdfplumber alone really cannot see this page
+    assert len(pdfplumber.open(io.BytesIO(damaged)).pages) == 0
+
+    doc = processor.process(damaged, PDF, "passbook.pdf")
+    [unit] = doc.units
+    assert unit.difficulty == PageDifficulty.HARD and unit.route == ExtractionRoute.LAYOUT
+    assert unit.signals["text_chars"] == 0 and unit.signals["image_count"] == 1
+    if unit.render_fn:
+        unit.render_fn()
+    assert unit.page_image is not None  # it can be shown to the layout model
+    assert any("repaired" in w for w in doc.warnings)
+    if doc.finalize:
+        doc.finalize()
+
+
+def test_well_formed_pdfs_are_not_touched_by_the_repair(processor):
+    doc = processor.process(make_pdf([text_page(LOREM)]), PDF, "a.pdf")
+    assert not any("repaired" in w for w in doc.warnings)
+    doc = processor.process(scanned_pdf(), PDF, "scan.pdf")
+    assert not any("repaired" in w for w in doc.warnings)
+
+
+def test_a_pdf_that_cannot_be_read_at_all_is_rejected_clearly(processor):
+    with pytest.raises(UnsupportedDocumentError):
+        processor.process(b"%PDF-1.4\n1 0 obj\n<< garbage >>\nendobj\n", PDF, "junk.pdf")
 
 
 def test_mixed_pdf_is_triaged_page_by_page(processor):

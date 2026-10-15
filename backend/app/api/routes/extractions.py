@@ -37,6 +37,7 @@ def start_extraction(
     job_service.dispatch_extraction(
         db, background, extraction.id,
         storage=storage, agent=agent, graph=graph, build_graph=payload.build_graph,
+        index_graph_rag=payload.index_graph_rag,
     )
     return extraction
 

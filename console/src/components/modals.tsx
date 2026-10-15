@@ -720,6 +720,7 @@ export function CreateSourceModal({
   const [subject, setSubject] = useState(subjectId ?? "");
   const [extractAfter, setExtractAfter] = useState(false);
   const [extractMode, setExtractMode] = useState<"standard" | "deep">("standard");
+  const [processFully, setProcessFully] = useState(false);
 
   const { tenant } = useTenant();
   const subjects = useResource<Subject[]>(
@@ -757,7 +758,7 @@ export function CreateSourceModal({
             subject,
             file,
             actorId || null,
-            extractAfter ? { mode: extractMode } : null,
+            extractAfter ? { mode: extractMode, processFully } : null,
           ))
         : await register.mutate(subject, {
             type,
@@ -863,6 +864,27 @@ export function CreateSourceModal({
                   disabled={pending}
                 />
               </Field>
+            )}
+            {extractAfter && (
+              <label className="flex items-start gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={processFully}
+                  onChange={(event) => setProcessFully(event.target.checked)}
+                  disabled={pending}
+                  className="mt-0.5 size-4 accent-[var(--color-brand)]"
+                />
+                <span>
+                  <span className="font-medium text-ink">
+                    Also build the knowledge graph and Graph RAG index
+                  </span>
+                  <span className="block text-xs text-ink-secondary">
+                    Once extraction finishes, reads the document into entities and
+                    relationships and indexes them, so Graph RAG can use it straight
+                    away. Costs extra model calls; progress shows on the file&apos;s page.
+                  </span>
+                </span>
+              </label>
             )}
           </>
         ) : (

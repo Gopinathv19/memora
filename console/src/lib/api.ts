@@ -452,7 +452,12 @@ export const api = {
       subjectId: string,
       file: File,
       createdByActorId?: string | null,
-      extract?: { mode: ExtractionMode; instructions?: string | null } | null,
+      extract?: {
+        mode: ExtractionMode;
+        instructions?: string | null;
+        /** Also build the knowledge graph and the Graph RAG index once extraction finishes. */
+        processFully?: boolean;
+      } | null,
     ) => {
       const form = new FormData();
       form.append("file", file);
@@ -461,6 +466,10 @@ export const api = {
         form.append("extract", "true");
         form.append("extract_mode", extract.mode);
         if (extract.instructions) form.append("extract_instructions", extract.instructions);
+        if (extract.processFully) {
+          form.append("build_graph", "true");
+          form.append("index_graph_rag", "true");
+        }
       }
       return request<Source>(`/subjects/${subjectId}/sources/upload`, {
         method: "POST",

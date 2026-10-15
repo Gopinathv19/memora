@@ -144,7 +144,9 @@ def _handle_extraction(payload: dict) -> None:
             extraction_id, get_storage(), get_extraction_agent()
         )
         if payload.get("build_graph"):
-            graph_service.build_after_extraction(extraction_id, get_graph_ingestion())
+            graph_service.build_after_extraction(
+                extraction_id, get_graph_ingestion(), bool(payload.get("index_graph_rag"))
+            )
 
 
 def _handle_graph_build(payload: dict) -> None:
@@ -228,21 +230,29 @@ def dispatch_extraction(
     agent,
     graph,
     build_graph: bool,
+    index_graph_rag: bool = False,
 ) -> None:
-    """Hand an extraction run (and optional graph build) to the configured runner."""
+    """Hand an extraction run (and optional graph build, and Graph RAG index) to the
+    configured runner. `index_graph_rag` implies `build_graph`."""
     from app.services import extraction_service, graph_service
 
     if is_durable():
         enqueue(
             db,
             KIND_EXTRACTION,
-            {"extraction_id": str(extraction_id), "build_graph": bool(build_graph)},
+            {
+                "extraction_id": str(extraction_id),
+                "build_graph": bool(build_graph or index_graph_rag),
+                "index_graph_rag": bool(index_graph_rag),
+            },
         )
         return
     background.add_task(extraction_service.run_extraction, extraction_id, storage, agent)
-    if build_graph:
+    if build_graph or index_graph_rag:
         # Background tasks run in order, so this starts after the run ends.
-        background.add_task(graph_service.build_after_extraction, extraction_id, graph)
+        background.add_task(
+            graph_service.build_after_extraction, extraction_id, graph, index_graph_rag
+        )
 
 
 def dispatch_graph_build(

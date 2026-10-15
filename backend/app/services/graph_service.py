@@ -288,12 +288,16 @@ def _mark_failed(build_id: uuid.UUID, message: str) -> None:
 
 
 def build_after_extraction(
-    extraction_id: uuid.UUID, ingestion: GraphIngestionService | None
+    extraction_id: uuid.UUID,
+    ingestion: GraphIngestionService | None,
+    index_graph_rag: bool = False,
 ) -> None:
     """Background task queued after `run_extraction` when `build_graph=true`.
 
     Starts a build if the extraction produced content. Attributed to whoever
-    triggered the extraction. Never raises.
+    triggered the extraction. With `index_graph_rag`, the Graph RAG index of the
+    source's subject is built once the graph build has produced something
+    (`completed` or `partial`). Never raises.
     """
     if ingestion is None:
         log.warning("build_graph requested but the graph is not configured; skipped")
@@ -321,6 +325,7 @@ def build_after_extraction(
         db.add(build)
         db.commit()
         build_id = build.id
+        source_id = source.id
     except Exception:
         db.rollback()
         log.exception("could not start the graph build after extraction %s", extraction_id)
@@ -328,6 +333,21 @@ def build_after_extraction(
     finally:
         db.close()
     run_build(build_id, ingestion)
+    if index_graph_rag:
+        _index_after_build(build_id, source_id)
+
+
+def _index_after_build(build_id: uuid.UUID, source_id: uuid.UUID) -> None:
+    """Chain the Graph RAG index build after a graph build, if it produced a graph."""
+    with SessionLocal() as db:
+        build = db.get(SourceGraphBuild, build_id)
+        status = build.status if build else None
+    if status not in (GraphBuildStatus.COMPLETED.value, GraphBuildStatus.PARTIAL.value):
+        log.info("graph build %s ended %s: Graph RAG index not built", build_id, status)
+        return
+    from app.graphrag import autoindex  # deferred: pulls in the graphrag package
+
+    autoindex.index_subject_for_source(source_id)
 
 
 def fail_interrupted_builds(db: Session) -> int:

@@ -34,6 +34,7 @@ from app.db.database import get_db
 from app.db.models.users import Users
 from app.graph.ingestion import GraphIngestionService, get_graph_ingestion
 from app.graph.retrieval import GraphRetrievalService, get_graph_retrieval
+from app.graphrag.store import GraphRagStore, get_rag_store
 from app.services.auth_services import (
     cached_tenant_ids,
     get_user,
@@ -141,3 +142,5 @@ ExtractionAgentDep = Annotated[ExtractionAgent, Depends(get_extraction_agent)]
 # None when FalkorDB is not configured; the graph services answer 503 then.
 GraphIngestionDep = Annotated[GraphIngestionService | None, Depends(get_graph_ingestion)]
 GraphRetrievalDep = Annotated[GraphRetrievalService | None, Depends(get_graph_retrieval)]
+# None when FalkorDB is not configured; the Graph RAG routes answer 503 then.
+GraphRagStoreDep = Annotated[GraphRagStore | None, Depends(get_rag_store)]

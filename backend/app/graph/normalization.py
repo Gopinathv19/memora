@@ -64,7 +64,9 @@ def canonical_key(name: str, entity_type: str | None = None) -> str:
 
 def acronym(key: str) -> str | None:
     """'international_business_machines' -> 'ibm'; None for one-word names."""
-    words = [w for w in key.split("_") if w not in _ACRONYM_SKIP]
+    # `if w`: a key such as "init__py" or "_private_name" splits into empty
+    # strings, and `w[0]` below would raise on them.
+    words = [w for w in key.split("_") if w and w not in _ACRONYM_SKIP]
     if len(words) < 2:
         return None
     return "".join(w[0] for w in words)
