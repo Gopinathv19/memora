@@ -1,5 +1,7 @@
 # Graph RAG service and the Compare dashboard
 
+> A second build path, reading the retrieval chunks directly, with atomic facts, hierarchical communities, a `unified` pipeline and durable index runs, is described in [graph-rag-unified.md](graph-rag-unified.md). Everything below still applies to the original.
+
 Graph RAG runs as its own service next to the vector pipeline (`POST /query`), and the
 console's **Graph RAG** section measures the two on the same questions so a user can see
 which one suits their workload. Code: `backend/app/graphrag/`, routes in

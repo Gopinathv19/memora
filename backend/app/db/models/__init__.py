@@ -23,6 +23,7 @@ from app.db.models.drive_import import DriveImport
 from app.db.models.embedding import ChunkEmbedding, EmbeddingModel, EmbeddingStrategy
 from app.db.models.extraction import ExtractionUsage, SourceExtraction
 from app.db.models.graph import SourceGraphBuild
+from app.db.models.graphrag_run import GraphRagIndexRun
 from app.db.models.job import Job
 from app.db.models.rag_run import BenchmarkRun, RagRun
 from app.db.models.source import Source
@@ -44,6 +45,7 @@ __all__ = [
     "ExtractionUsage",
     "SourceGraphBuild",
     "Job",
+    "GraphRagIndexRun",
     "DocumentUnit",
     "SemanticBlock",
     "RetrievalChunk",

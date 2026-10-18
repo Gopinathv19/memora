@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import random
+import re
 import statistics
 import sys
 import threading
@@ -33,6 +34,7 @@ from app.core.config import get_settings
 from app.db.database import SessionLocal
 from app.db.models import BenchmarkRun
 from app.graphrag import compare as compare_module
+from app.graphrag.abstain import is_abstention  # noqa: F401  (also used by answer.py; kept importable from here)
 from app.graphrag.params import Pipeline, RetrievalParams, Technique
 from app.graphrag.pipelines import llm_cost
 from app.graphrag.store import GraphRagStore
@@ -53,6 +55,9 @@ _JUDGE_SYSTEM = (
 )
 TIE_MARGIN = 0.05
 
+def is_unanswerable(q: dict) -> bool:
+    return bool(q.get("is_unanswerable")) or q.get("query_type") == "unanswerable"
+
 
 def pipeline_key(pipeline: str, technique: str | None) -> str:
     return "vector" if pipeline == "vector" else f"{pipeline}:{technique}"
@@ -67,9 +72,20 @@ def bootstrap_ci(values: list[float], n: int = 1000, seed: int = 7) -> tuple[flo
     return round(means[int(0.025 * n)], 4), round(means[int(0.975 * n) - 1], 4)
 
 
+def judge_model() -> str:
+    settings = get_settings()
+    return settings.graphrag_judge_model or settings.llm_answer_model
+
+
+def judge_info() -> dict:
+    """Recorded on every run: which model graded, and whether it also wrote the answers."""
+    model = judge_model()
+    return {"judge_model": model, "judge_same_as_answer": model == get_settings().llm_answer_model}
+
+
 def judge(question: str, expected: str, answer: str) -> tuple[float | None, float]:
     """(score or None if the judge failed, cost in USD)."""
-    model = get_settings().llm_answer_model
+    model = judge_model()
     user = f"Question: {question}\n\nReference answer: {expected}\n\nAnswer to grade: {answer}"
     try:
         data, usage = get_llm_client().chat_json(model, _JUDGE_SYSTEM, user)
@@ -88,6 +104,23 @@ def _percentile(values: list[float], p: float) -> float | None:
         return None
     ordered = sorted(values)
     return round(ordered[min(len(ordered) - 1, int(p * len(ordered)))], 1)
+
+
+def _answer_checks(r: dict) -> dict:
+    """The graph answer step's deterministic checks (`answer.py`) as booleans; None for pipelines without them."""
+    v = r.get("verification") or {}
+    if not v:
+        return {"verification_ok": None, "has_citations": None, "has_unsupported_number": None, "has_uncited_sentence": None}
+    return {
+        "verification_ok": bool(v.get("ok")), "has_citations": bool(r.get("citations")),
+        "has_unsupported_number": bool(v.get("unsupported_numbers")),
+        "has_uncited_sentence": bool(v.get("uncited_sentences")),
+    }
+
+
+def _rate(rows: list[dict], field: str) -> float | None:
+    values = [bool(r[field]) for r in rows if r.get(field) is not None]
+    return round(sum(values) / len(values), 4) if values else None
 
 
 def aggregate(per_question: list[dict], keys: list[str]) -> tuple[dict, dict]:
@@ -109,6 +142,14 @@ def aggregate(per_question: list[dict], keys: list[str]) -> tuple[dict, dict]:
         summary = metrics.summarize_retrieval(retrieval_rows)
         correctness = [r["correctness"] for r in ok if r.get("correctness") is not None]
         latencies = [r["total_ms"] for r in ok]
+        unanswerable_rows = [
+            r for q in per_question for r in [q["pipelines"].get(key)]
+            if r and r["status"] == "ok" and q.get("is_unanswerable")
+        ]
+        answerable_rows = [
+            r for q in per_question for r in [q["pipelines"].get(key)]
+            if r and r["status"] == "ok" and not q.get("is_unanswerable")
+        ]
         recalls = [
             metrics.recall_at_k(r["retrieved_ids"], q["relevant_ids"], 5)
             for q in per_question for r in [q["pipelines"].get(key)]
@@ -121,6 +162,16 @@ def aggregate(per_question: list[dict], keys: list[str]) -> tuple[dict, dict]:
             "correctness": round(statistics.fmean(correctness), 4) if correctness else None,
             "correctness_ci": bootstrap_ci(correctness),
             "recall_at_5_ci": bootstrap_ci(recalls),
+            # Should abstain: higher is better. Should answer: lower is better.
+            "abstain_on_unanswerable": _rate(unanswerable_rows, "abstained"),
+            "unanswerable_n": len(unanswerable_rows),
+            "false_abstain_on_answerable": _rate(answerable_rows, "abstained"),
+            # Answers with numbered evidence only (the unified pipeline): how often the checks pass.
+            "answers_checked": sum(1 for r in ok if r.get("verification_ok") is not None),
+            "verified_ok_rate": _rate(ok, "verification_ok"),
+            "cited_answer_rate": _rate(ok, "has_citations"),
+            "unsupported_number_rate": _rate(ok, "has_unsupported_number"),
+            "uncited_answer_rate": _rate(ok, "has_uncited_sentence"),
             "latency_p50_ms": _percentile(latencies, 0.5),
             "latency_p95_ms": _percentile(latencies, 0.95),
             "latency_mean_ms": round(statistics.fmean(latencies), 1) if latencies else None,
@@ -173,7 +224,7 @@ def aggregate(per_question: list[dict], keys: list[str]) -> tuple[dict, dict]:
 def run_benchmark(
     benchmark_id: uuid.UUID, scope: Scope, rag_store: GraphRagStore, subject_id, tenant_id,
     questions: list[dict], techniques: list[Technique], include_hybrid: bool, do_judge: bool,
-    params: RetrievalParams,
+    params: RetrievalParams, include_unified: bool = False,
 ) -> None:
     """Runs in a background thread: updates the BenchmarkRun row after every question."""
     from evals import metrics
@@ -183,6 +234,8 @@ def run_benchmark(
     keys = ["vector"] + [pipeline_key("graph", str(t)) for t in techniques]
     if include_hybrid:
         keys.append(pipeline_key("hybrid", str(techniques[0])))
+    if include_unified:
+        keys.append(pipeline_key("unified", "unified"))
 
     per_question: list[dict] = []
     judge_cost = 0.0
@@ -192,7 +245,7 @@ def run_benchmark(
             entry = {
                 "index": index, "query": q["query"], "query_type": q.get("query_type", "factoid"),
                 "expected_answer": q.get("expected_answer"), "relevant_ids": relevant,
-                "pipelines": {},
+                "is_unanswerable": is_unanswerable(q), "pipelines": {},
             }
             # One compare per technique so each gets its own params; the vector
             # pipeline and the hybrid pipeline ride along with the first one.
@@ -200,6 +253,7 @@ def run_benchmark(
                 pipes = [Pipeline.GRAPH]
                 if i == 0:
                     pipes = [Pipeline.VECTOR] + pipes + ([Pipeline.HYBRID] if include_hybrid else [])
+                    pipes += [Pipeline.UNIFIED] if include_unified else []
                 p = RetrievalParams(**{**params.__dict__, "technique": technique})
                 result = compare_module.compare(
                     scope, rag_store, q["query"], subject_id, tenant_id, p, pipes
@@ -214,6 +268,9 @@ def run_benchmark(
                         "prompt_tokens": r["prompt_tokens"], "completion_tokens": r["completion_tokens"],
                         "recall_at_5": metrics.recall_at_k(retrieved, relevant, 5) if relevant else None,
                         "correctness": None,
+                        "abstained": is_abstention(r["answer"]) if r["status"] == "ok" else None,
+                        **_answer_checks(r),
+                        "weak_evidence": (r.get("evidence") or {}).get("weak"),
                     }
                     if do_judge and r["status"] == "ok" and q.get("expected_answer"):
                         score, cost = judge(q["query"], q["expected_answer"], r["answer"])
@@ -223,10 +280,10 @@ def run_benchmark(
             per_question.append(entry)
             aggregates, by_type = aggregate(per_question, keys)
             _save(benchmark_id, per_question, aggregates, by_type, status="running",
-                  extra={"judge_cost_usd": round(judge_cost, 6)})
+                  extra={"judge_cost_usd": round(judge_cost, 6), **judge_info()})
         aggregates, by_type = aggregate(per_question, keys)
         _save(benchmark_id, per_question, aggregates, by_type, status="done",
-              extra={"judge_cost_usd": round(judge_cost, 6)})
+              extra={"judge_cost_usd": round(judge_cost, 6), **judge_info()})
     except Exception as exc:  # noqa: BLE001 - recorded on the row
         log.exception("benchmark %s failed", benchmark_id)
         _save(benchmark_id, per_question, {}, {}, status="failed", error=str(exc)[:500])

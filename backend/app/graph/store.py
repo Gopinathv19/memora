@@ -92,6 +92,11 @@ class FalkorGraphStore:
         self._indexed: set[str] = set()
         self._lock = threading.Lock()
         self._connect_lock = threading.Lock()
+        # Callables `(tenant_id, source_id)` run before a source's nodes are deleted, so a layer that adds
+        # its own nodes (the unified Graph RAG build: atomic facts, merge records) can clean up after itself
+        # on every path that deletes a source: the post-commit hook, the startup sweep, and a rebuild.
+        self.before_delete_source: list = []
+        self.after_delete_source: list = []       # same signature, run once everything of the source is gone
 
     @property
     def db(self) -> FalkorDB:
@@ -279,6 +284,11 @@ class FalkorGraphStore:
                 {"sid": source_id},
             )
         ]
+        for hook in self.before_delete_source:
+            try:
+                hook(tenant_id, source_id)
+            except Exception:  # a cleanup hook must never stop the deletion it belongs to
+                log.exception("delete hook failed for source %s", source_id)
         stats = {"relationships": 0, "chunks": 0, "entities": 0}
         if touched:
             result = self._query(
@@ -301,6 +311,11 @@ class FalkorGraphStore:
                 {"ids": touched},
             )
             stats["entities"] = int(result.nodes_deleted)
+        for hook in self.after_delete_source:
+            try:
+                hook(tenant_id, source_id)
+            except Exception:
+                log.exception("after-delete hook failed for source %s", source_id)
         return stats
 
     def set_document_subject(self, tenant_id, source_ids: list[str], subject_id: str) -> None:
@@ -431,4 +446,8 @@ def get_graph_store() -> FalkorGraphStore | None:
     settings = get_settings()
     if not settings.falkordb_url:
         return None
-    return FalkorGraphStore.from_settings(settings)
+    store = FalkorGraphStore.from_settings(settings)
+    from app.graphrag.store import GraphRagStore  # deferred: the graphrag package imports this module
+
+    GraphRagStore(store)  # registers its cleanup hook on the store
+    return store

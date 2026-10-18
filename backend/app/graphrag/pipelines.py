@@ -69,6 +69,10 @@ class PipelineResult:
     trace: dict = field(default_factory=dict)
     # How much to trust what was retrieved: {"best_rerank", "weak", "anchored"}
     evidence: dict = field(default_factory=dict)
+    # Graph answers with numbered evidence (`answer.py`): each marker the answer cites, resolved, and the
+    # deterministic checks run on it. Empty for the vector, graph and hybrid pipelines.
+    citations: list[dict] = field(default_factory=list)
+    verification: dict = field(default_factory=dict)
     status: str = "ok"
     error: str | None = None
 

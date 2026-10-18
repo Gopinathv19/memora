@@ -49,13 +49,14 @@ QUERY_TYPES = (
     "conversational",     # a follow-up that depends on prior turns
     "image",              # answer lives in an image/chart/scanned page
     "temporal",           # answer depends on a date / document version
+    "corpus_wide",        # an overview that needs several passages from several files
 )
 
 DIFFICULTIES = ("easy", "medium", "hard")
 
 QueryType = Literal[
     "factoid", "exact_lookup", "table", "comparison", "multi_document",
-    "multi_hop", "unanswerable", "conversational", "image", "temporal",
+    "multi_hop", "unanswerable", "conversational", "image", "temporal", "corpus_wide",
 ]
 Difficulty = Literal["easy", "medium", "hard"]
 

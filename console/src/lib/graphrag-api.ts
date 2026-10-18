@@ -9,7 +9,6 @@ import type {
   IndexStatus,
   Pipeline,
   PipelineResult,
-  RagRun,
   SourceInspection,
 } from "./graphrag-types";
 
@@ -94,28 +93,6 @@ async function streamCompare(
 }
 
 export const graphrag = {
-  query: (
-    subjectId: string,
-    query: string,
-    params: GraphParams,
-    pipeline: "graph" | "hybrid" = "graph",
-  ) =>
-    request<PipelineResult>("/graph-rag/query", {
-      method: "POST",
-      body: json({ subject_id: subjectId, query, params, pipeline }),
-    }),
-
-  compare: (
-    subjectId: string,
-    query: string,
-    params: GraphParams,
-    pipelines: Pipeline[],
-  ) =>
-    request<CompareResult>("/compare/query", {
-      method: "POST",
-      body: json({ subject_id: subjectId, query, params, pipelines }),
-    }),
-
   compareStream: (
     subjectId: string,
     query: string,
@@ -129,11 +106,6 @@ export const graphrag = {
       handlers,
       signal,
     ),
-
-  runs: (subjectId?: string, limit = 100) =>
-    request<RagRun[]>("/compare/runs", {
-      query: { subject_id: subjectId, limit: String(limit) },
-    }),
 
   expand: (subjectId: string, entityIds: string[], limit = 60) =>
     request<ExpandResult>("/graph-rag/expand", {

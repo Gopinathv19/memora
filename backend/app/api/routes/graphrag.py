@@ -7,24 +7,29 @@
     POST /graph-rag/expand       one hop out from entities (graph explorer)
     GET  /subjects/{id}/graph-rag/status   what is indexed for a subject
     POST /subjects/{id}/graph-rag/index    embed entities and facts, build communities
+    POST /subjects/{id}/graph-rag/build    the unified build: plan, build what is out of date, communities
+    GET  /subjects/{id}/graph-rag/runs     its runs (state lives in Postgres, not in process memory)
+    GET  /graph-rag/runs/{run_id}          one run
     POST/GET /compare/benchmarks[...]      benchmark the pipelines over a question set
 """
 
 import json
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.api.deps import CurrentScope, DbSession, GraphRagStoreDep
 from app.core.errors import NotFoundError
-from app.db.models import BenchmarkRun, RagRun, Source
-from app.graphrag import autoindex, benchmark, pipelines
+from app.db.models import BenchmarkRun, GraphRagIndexRun, RagRun, Source
+from app.graphrag import autoindex, benchmark, index_job, pipelines, runs, unified
 from app.graphrag.compare import compare as run_compare, stream_compare
 from app.graphrag.params import Pipeline
 from app.graphrag.store import GraphRagStore
 from app.schemas.graphrag import (
+    IndexBuildRequest,
+    IndexRunRead,
     BenchmarkDetail,
     BenchmarkRead,
     BenchmarkRequest,
@@ -72,12 +77,18 @@ def graph_rag_query(
     """Answer a question from the knowledge graph with the chosen technique."""
     rag = _require(store)
     subject, _ = graph_service.subject_source_ids(db, payload.subject_id, scope, True)
-    result = _reachable(
-        lambda: pipelines.run_graph(
-            db, scope, rag, payload.query, payload.subject_id, payload.params.to_params(),
-            hybrid=payload.pipeline == Pipeline.HYBRID,
+    params = payload.params.to_params()
+    if payload.pipeline == Pipeline.UNIFIED:
+        result = _reachable(
+            lambda: unified.run_unified(db, scope, rag, payload.query, payload.subject_id, params)
         )
-    )
+    else:
+        result = _reachable(
+            lambda: pipelines.run_graph(
+                db, scope, rag, payload.query, payload.subject_id, params,
+                hybrid=payload.pipeline == Pipeline.HYBRID,
+            )
+        )
     pipelines.record_run(db, result, tenant_id=subject.tenant_id, subject_id=subject.id)
     return result.to_dict()
 
@@ -211,6 +222,48 @@ def index_status(subject_id: uuid.UUID, db: DbSession, scope: CurrentScope, stor
     }
 
 
+@router.post("/subjects/{subject_id}/graph-rag/build", status_code=status.HTTP_202_ACCEPTED, response_model=IndexRunRead)
+def start_build(
+    subject_id: uuid.UUID, payload: IndexBuildRequest, db: DbSession, scope: CurrentScope,
+    store: GraphRagStoreDep, background: BackgroundTasks, response: Response,
+):
+    """Start the unified build for a subject: it plans what is new, changed or removed since the graph was built
+    and rebuilds only that. One run per subject at a time: if one is already active, it is returned (HTTP 200,
+    not 202) instead of starting a second."""
+    _require(store)
+    subject, source_ids = graph_service.subject_source_ids(db, subject_id, scope, True)
+    if payload.source_ids is not None:
+        unknown = {str(i) for i in payload.source_ids} - set(source_ids)
+        if unknown:
+            raise HTTPException(422, f"not sources of this subject: {sorted(unknown)[:5]}")
+    run, created = runs.start_run(
+        db, subject.tenant_id, subject.id, trigger="api",
+        source_ids=[str(i) for i in payload.source_ids] if payload.source_ids is not None else None,
+        options={"rebuild_outdated": payload.rebuild_outdated, "communities": payload.communities},
+    )
+    if created:
+        index_job.dispatch(db, background, run.id)
+    else:
+        response.status_code = status.HTTP_200_OK
+    return run
+
+
+@router.get("/subjects/{subject_id}/graph-rag/runs", response_model=list[IndexRunRead])
+def list_index_runs(subject_id: uuid.UUID, db: DbSession, scope: CurrentScope, limit: int = Query(20, ge=1, le=100)):
+    subject, _ = graph_service.subject_source_ids(db, subject_id, scope, True)
+    runs.reap_stale(db, subject.id)
+    return runs.list_runs(db, subject.id, limit)
+
+
+@router.get("/graph-rag/runs/{run_id}", response_model=IndexRunRead)
+def get_index_run(run_id: uuid.UUID, db: DbSession, scope: CurrentScope):
+    run = db.get(GraphRagIndexRun, run_id)
+    if run is None:
+        raise NotFoundError("Index run not found")
+    graph_service.subject_source_ids(db, run.subject_id, scope, True)      # scope check: 404 for another tenant's run
+    return run
+
+
 @router.post("/subjects/{subject_id}/graph-rag/index", status_code=status.HTTP_202_ACCEPTED)
 def build_index(
     subject_id: uuid.UUID, payload: IndexRequest, db: DbSession, scope: CurrentScope,
@@ -247,6 +300,7 @@ def start_benchmark(
     questions = [q.model_dump() for q in payload.questions]
     config = {
         "techniques": [str(t) for t in payload.techniques], "include_hybrid": payload.include_hybrid,
+        "include_unified": payload.include_unified,
         "judge": payload.judge, "params": payload.params.model_dump(mode="json"),
     }
     run = benchmark.create_run(
@@ -257,7 +311,7 @@ def start_benchmark(
         benchmark_id=run.id, scope=scope, rag_store=rag, subject_id=subject.id,
         tenant_id=subject.tenant_id, questions=questions, techniques=list(payload.techniques),
         include_hybrid=payload.include_hybrid, do_judge=payload.judge,
-        params=payload.params.to_params(),
+        params=payload.params.to_params(), include_unified=payload.include_unified,
     )
     return run
 

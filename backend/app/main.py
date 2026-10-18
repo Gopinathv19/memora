@@ -83,6 +83,17 @@ async def lifespan(_: FastAPI):
     except Exception:
         logging.getLogger(__name__).exception("could not check for interrupted graph builds")
 
+    # Graph RAG index runs (durable state in Postgres): one left `running` belonged to a process that is gone.
+    try:
+        from app.graphrag.runs import fail_interrupted_runs
+
+        with SessionLocal() as db:
+            interrupted = 0 if durable else fail_interrupted_runs(db)
+        if interrupted:
+            logging.getLogger(__name__).warning("marked %d interrupted graph index run(s)", interrupted)
+    except Exception:
+        logging.getLogger(__name__).exception("could not check for interrupted graph index runs")
+
     def _sweep() -> None:
         try:
             with SessionLocal() as db:

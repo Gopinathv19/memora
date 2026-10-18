@@ -222,6 +222,17 @@ class Settings(BaseSettings):
     falkordb_timeout_ms: int = 30_000
     # The model that reads each chunk for entities and relationships.
     llm_graph_model: str = "nvidia/nemotron-3-super-120b-a12b"
+    # The benchmark's answer judge. Empty means "use the answer model", which the
+    # benchmark run records as `judge_same_as_answer`: a model grading its own
+    # style is biased, so set a different `nvidia/` model to get a fair score.
+    graphrag_judge_model: str = ""
+    # Index runs (`graphrag/index_job.py`). A running run that has not reported for this long is taken to
+    # have died (the worker crashed) and no longer blocks the subject.
+    graphrag_run_lease_seconds: int = 1800
+    # Index spend a tenant may run up in 24 hours, in USD (extraction calls only: summaries and the entity
+    # judge are not metered). 0 means no cap. A run that finds the cap reached is `blocked`, not run.
+    graphrag_tenant_daily_cost_cap_usd: float = 0.0
+    graphrag_build_concurrency: int = 4
     # The operator's entity / relationship types (see app/graph/ontology.py).
     graph_ontology_file: str = str(Path(__file__).resolve().parents[2] / "ontology.json")
     graph_chunk_chars: int = 3000
@@ -355,6 +366,16 @@ class Settings(BaseSettings):
         # Failing at startup is the only way to make that impossible to miss.
         value = value.strip()
         if not value.lower().startswith("nvidia/"):
+            raise ValueError(
+                f"{value!r} is not an NVIDIA model; model ids must start with 'nvidia/'"
+            )
+        return value
+
+    @field_validator("graphrag_judge_model")
+    @classmethod
+    def _judge_model_nvidia_or_empty(cls, value: str) -> str:
+        value = value.strip()
+        if value and not value.lower().startswith("nvidia/"):
             raise ValueError(
                 f"{value!r} is not an NVIDIA model; model ids must start with 'nvidia/'"
             )

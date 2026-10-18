@@ -1,5 +1,7 @@
 # Knowledge graph (GraphRAG) — design
 
+> A second build path, reading the retrieval chunks directly, with atomic facts, hierarchical communities, a `unified` pipeline and durable index runs, is described in [graph-rag-unified.md](graph-rag-unified.md). Everything below still applies to the original.
+
 Status: **built** (2026-09-25), backend and console. This
 document is both the design and a description of what shipped. It sits below
 the [Extraction Agent](extraction-agent.md). The vector/embedding pipeline is

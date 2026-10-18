@@ -125,7 +125,6 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: "/compare", label: "Arena", icon: "compare" },
       { href: "/compare/benchmarks", label: "Benchmarks", icon: "chunks" },
-      { href: "/compare/advisor", label: "Advisor", icon: "ask" },
       { href: "/compare/graph", label: "Graph explorer", icon: "subjects" },
       { href: "/compare/inspect", label: "Source inspector", icon: "sources" },
     ],

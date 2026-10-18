@@ -16,6 +16,7 @@ import { motion } from "framer-motion";
 import { graphrag } from "@/lib/graphrag-api";
 import { TECHNIQUES, type BenchmarkDetail, type BenchmarkQuestion, type BenchmarkRun, type Technique } from "@/lib/graphrag-types";
 import { IndexBanner, SubjectSelect, fmtCost, useCompareSubject } from "@/components/compare/shared";
+import { Advisor } from "@/components/compare/Advisor";
 import { ByTypePanel, QuestionTable, RadarPanel, Scorecard, WinLoss } from "@/components/compare/BenchCharts";
 import { Button, EmptyState, ErrorState, PageHeader, Panel } from "@/components/ui";
 
@@ -239,6 +240,7 @@ export default function BenchmarksPage() {
           )}
         </div>
       </div>
+      <Advisor />
     </>
   );
 }

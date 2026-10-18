@@ -20,6 +20,7 @@ class Pipeline(StrEnum):
     VECTOR = "vector"
     GRAPH = "graph"
     HYBRID = "hybrid"
+    UNIFIED = "unified"  # atomic facts + passage-aware walk + vector, weighted fusion (plan Step 5)
 
 
 # The reranker's score for the best chunk of an answer. Measured on this
@@ -57,3 +58,13 @@ class RetrievalParams:
     max_graph_chunks: int = 30
     # Weight of the graph list when fused with the vector list (hybrid).
     hybrid_graph_weight: int = 1
+    # --- the unified pipeline ---
+    # Off by default: on a 41-question benchmark the model analyser gave no measurable recall over rules or fixed
+    # weights and added ~2.5 s per question. With it off, the kind (and so the weights) still comes from rules.
+    unified_analyser: bool = False       # True: a model call sets the weights from the question's kind (never gates)
+    unified_weights: dict | None = None  # override {"vector", "atoms", "walk"}; None = by question kind
+    unified_widen: bool = True           # on weak evidence, search wider once before giving up
+    unified_multi_hop: bool = False      # seed the walk from the analyser's sub-questions too
+    atom_k: int = 12                     # atomic facts fetched per question
+    walk_passage_weight: float = 0.3     # restart weight of dense-search chunks relative to entity seeds
+    answer_llm_check: bool = False       # a second model call checks each cited claim against its evidence

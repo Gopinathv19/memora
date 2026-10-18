@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 PENDING, RUNNING, DONE, FAILED = "pending", "running", "done", "failed"
 KIND_EXTRACTION = "extraction"
 KIND_GRAPH_BUILD = "graph_build"
+KIND_GRAPH_RAG_INDEX = "graph_rag_index"
 
 _wake = threading.Event()
 
@@ -119,6 +120,10 @@ def _on_dead(job: Job) -> None:
             from app.services.graph_service import _mark_failed as mark_build_failed
 
             mark_build_failed(uuid.UUID(job.payload["build_id"]), message)
+        elif job.kind == KIND_GRAPH_RAG_INDEX:
+            from app.graphrag import runs as graphrag_runs
+
+            graphrag_runs.finish(uuid.UUID(job.payload["run_id"]), "failed", error=message)
     except Exception:
         log.exception("could not mark the target of dead job %s failed", job.id)
 
@@ -164,9 +169,16 @@ def _handle_graph_build(payload: dict) -> None:
         graph_service.run_build(build_id, ingestion)
 
 
+def _handle_graph_rag_index(payload: dict) -> None:
+    from app.graphrag import index_job
+
+    index_job.run_index(uuid.UUID(payload["run_id"]))      # never raises; the outcome is on the run row
+
+
 HANDLERS: dict[str, Callable[[dict], None]] = {
     KIND_EXTRACTION: _handle_extraction,
     KIND_GRAPH_BUILD: _handle_graph_build,
+    KIND_GRAPH_RAG_INDEX: _handle_graph_rag_index,
 }
 
 

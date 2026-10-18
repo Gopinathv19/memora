@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.db.database import SessionLocal
-from app.graphrag import pipelines
+from app.graphrag import pipelines, unified
 from app.graphrag.bridge import MIN_CONTAINMENT, containment, shingles
 from app.graphrag.params import Pipeline, RetrievalParams
 from app.graphrag.store import GraphRagStore
@@ -97,11 +97,15 @@ def _run_one(
     pipeline: Pipeline, scope: Scope, rag_store: GraphRagStore, query: str, subject_id,
     tenant_id, params: RetrievalParams, compare_id: uuid.UUID,
 ) -> pipelines.PipelineResult:
-    technique = None if pipeline == Pipeline.VECTOR else str(params.technique)
+    technique = (
+        None if pipeline == Pipeline.VECTOR else "unified" if pipeline == Pipeline.UNIFIED else str(params.technique)
+    )
     with SessionLocal() as db:
         try:
             if pipeline == Pipeline.VECTOR:
                 result = pipelines.run_vector(db, scope, query, subject_id)
+            elif pipeline == Pipeline.UNIFIED:
+                result = unified.run_unified(db, scope, rag_store, query, subject_id, params)
             else:
                 result = pipelines.run_graph(
                     db, scope, rag_store, query, subject_id, params,

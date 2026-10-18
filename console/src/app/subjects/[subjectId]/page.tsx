@@ -8,7 +8,6 @@ import { formatBytes, formatDate } from "@/lib/format";
 import { useMutation, useResource } from "@/lib/useResource";
 import { Breadcrumbs } from "@/components/Shell";
 import { FileExplorer } from "@/components/FileExplorer";
-import { SubjectGraph } from "@/components/SubjectGraph";
 import {
   Button,
   ErrorState,
@@ -145,7 +144,12 @@ export default function SubjectDetailPage() {
       </div>
 
       <div className="mb-5">
-        <SubjectGraph subjectId={subjectId} />
+        <Link
+          href="/compare/graph"
+          className="inline-flex text-sm text-ink-secondary underline-offset-2 hover:text-ink hover:underline"
+        >
+          Open this subject&apos;s knowledge graph in the Graph explorer →
+        </Link>
       </div>
 
       {/* Modals are handled inside FileExplorer */}

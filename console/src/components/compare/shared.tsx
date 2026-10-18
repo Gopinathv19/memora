@@ -41,7 +41,6 @@ export const colorOfKey = (key: string) => PIPELINE_COLOR[key.split(":")[0]] ?? 
 const TABS = [
   { href: "/compare", label: "Arena" },
   { href: "/compare/benchmarks", label: "Benchmarks" },
-  { href: "/compare/advisor", label: "Advisor" },
   { href: "/compare/graph", label: "Graph explorer" },
   { href: "/compare/inspect", label: "Source inspector" },
 ];
