@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="memora: Durable retrievable memory for your app"><style>:root{--bg:#fdfcff;--bg-sidebar:#f9f7ff;--surface:#f5f2ff;--surface-2:#edeaf8;--surface-3:#e6e3f1;--chip:#d9d5e4;--border:#dfdcea;--border-strong:#c9c6d6;--grid:#ebeaee;--divider:#afabbd;--text:#1a1530;--text-2:#433f55;--text-3:#706d7f;--text-4:#8c8998;--accent:#7c3aed;--accent-strong:#6931c9;--accent-soft:#db2777;--accent-softer:#51269a;--accent-dim:#c3a5f7;--accent-bg:#f5f0fe;--on-accent:#ffffff;--mark-bg:linear-gradient(135deg, #7c3aed, #db2777);--ok:#15803d;--ok-border:#a0cab1;--warn:#d97706;--warn-soft:#b45309;--warn-border:#efc79b;--warn-bg:#faf3ee;--danger:#dc2626;--danger-soft:#b91c1c;--danger-border:#f0a6a8;--danger-bg:#fbf1f4;--info:#0369a1;--info-border:#99c1d9;--shadow:0 18px 44px rgba(15,25,40,.14);--font-sans:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;--font-heading:"Geist", ui-sans-serif, system-ui, sans-serif;--font-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;--radius:14px;--mark-radius:6px;--type-scale:1.14}text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif}
+.d-box { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1; rx: 5px; }
+.d-box.accent { fill: var(--accent-bg); stroke: var(--accent); }
+.d-box.soft { fill: var(--surface-3); stroke: var(--border); }
+.d-box.external { fill: var(--bg); stroke: var(--divider); stroke-dasharray: 4 3; }
+.d-box.ok { fill: color-mix(in srgb, var(--ok) 8%, var(--surface)); stroke: var(--ok-border); }
+.d-box.warn { fill: var(--warn-bg); stroke: var(--warn-border); }
+.d-box.danger { fill: var(--danger-bg); stroke: var(--danger-border); }
+.d-zone { fill: none; stroke: var(--border-strong); stroke-dasharray: 2 4; rx: 6px; }
+.d-zone.trust { fill: color-mix(in srgb, var(--accent) 4%, transparent); stroke: var(--accent-dim); stroke-dasharray: 6 4; }
+.d-zone-label { fill: var(--text-4); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; font-family: var(--font-sans); }
+.d-t { fill: var(--text); font-size: 12px; font-weight: 600; font-family: var(--font-sans); }
+.d-s { fill: var(--text-3); font-size: 10.5px; font-family: var(--font-sans); }
+.d-m { fill: var(--text-4); font-size: 10px; font-family: var(--font-mono); }
+.d-edge { fill: none; stroke: var(--text-4); stroke-width: 1.2; }
+.d-edge.accent { stroke: var(--accent-soft); stroke-width: 1.5; }
+.d-edge.dash { stroke-dasharray: 4 3; }
+.d-edge.warn { stroke: var(--warn); }
+.d-edge.ok { stroke: var(--ok); }
+.d-edge-label { fill: var(--text-2); font-size: 10px; font-family: var(--font-sans); }
+.d-arrow { fill: var(--text-4); }
+.d-arrow.accent { fill: var(--accent-soft); }
+.d-arrow.warn { fill: var(--warn); }
+.d-arrow.ok { fill: var(--ok); }
+.d-life { stroke: var(--border-strong); stroke-dasharray: 3 4; }
+.d-actor { fill: var(--surface-2); stroke: var(--border-strong); rx: 5px; }
+.d-actor.accent { fill: var(--accent-bg); stroke: var(--accent); }
+.d-group { fill: color-mix(in srgb, var(--accent) 5%, transparent); stroke: var(--accent-dim); stroke-dasharray: 5 3; rx: 5px; }
+.d-group-label { fill: var(--accent-softer); font-size: 10px; font-weight: 600; font-family: var(--font-sans); }
+.d-num { fill: var(--accent-strong); rx: 4px; }
+.d-num-t { fill: var(--on-accent, #fff); font-size: 10px; font-weight: 700; font-family: var(--font-mono); }
+.d-diamond { fill: var(--surface-3); stroke: var(--accent-soft); }
+.d-halo { stroke: var(--surface); stroke-width: 4px; paint-order: stroke; }</style>
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fdfcff"/><stop offset="1" stop-color="#f5f0fe"/></linearGradient>
+  <radialGradient id="glow" cx="0.85" cy="0" r="0.8"><stop offset="0" stop-color="#7c3aed" stop-opacity="0.22"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient>
+  <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#ebeaee"/></pattern>
+</defs>
+<rect width="1280" height="400" rx="20" fill="url(#bg)"/><rect width="1280" height="400" rx="20" fill="url(#dots)" opacity="0.7"/><rect width="1280" height="400" rx="20" fill="url(#glow)"/>
+<rect x="64" y="56" width="44" height="44" rx="10" fill="#7c3aed"/><text x="86" y="86" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">M</text><text x="124" y="86" font-size="22" font-weight="700" fill="#1a1530">memora</text>
+<text x="64" y="146" font-size="12" font-weight="700" letter-spacing="2" fill="#db2777" data-max-x="750">DURABLE MEMORY API</text>
+<text x="64" y="206" font-size="42" font-weight="700" letter-spacing="-0.5" data-max-x="750"><tspan fill="#1a1530">Durable</tspan><tspan fill="#1a1530"> retrievable</tspan></text><text x="64" y="253.04000000000002" font-size="42" font-weight="700" letter-spacing="-0.5" data-max-x="750"><tspan fill="#1a1530">memory</tspan><tspan fill="#1a1530"> for</tspan><tspan fill="#1a1530"> your</tspan><tspan fill="#1a1530"> app</tspan></text><text x="64" y="289.04" font-size="15" fill="#433f55" data-max-x="750">Versioned extractions + chunking · pgvector HNSW + FalkorDB</text><text x="64" y="310.04" font-size="15" fill="#433f55" data-max-x="750">graph · Console, docs, real-DB tests</text>
+<rect x="770" y="76" width="446" height="53" rx="12" fill="#f5f2ff" stroke="#7c3aed"/>
+<rect x="786" y="88.5" width="28" height="28" rx="7" fill="#f5f0fe" stroke="#c3a5f7"/><text x="800" y="107.5" text-anchor="middle" font-size="13" font-weight="700" fill="#db2777">1</text>
+<text x="828" y="99.5" font-size="14" font-weight="700" fill="#1a1530">Ownership chain</text>
+<text x="828" y="117.5" font-size="11.5" fill="#706d7f">Tenant App Actor Subject Source</text><rect x="770" y="141" width="446" height="53" rx="12" fill="#f5f2ff" stroke="#c9c6d6"/>
+<rect x="786" y="153.5" width="28" height="28" rx="7" fill="#f5f0fe" stroke="#c3a5f7"/><text x="800" y="172.5" text-anchor="middle" font-size="13" font-weight="700" fill="#db2777">2</text>
+<text x="828" y="164.5" font-size="14" font-weight="700" fill="#1a1530">Grounded retrieval</text>
+<text x="828" y="182.5" font-size="11.5" fill="#706d7f">HNSW top50 MMR top10 rerank top5</text><rect x="770" y="206" width="446" height="53" rx="12" fill="#f5f2ff" stroke="#c9c6d6"/>
+<rect x="786" y="218.5" width="28" height="28" rx="7" fill="#f5f0fe" stroke="#c3a5f7"/><text x="800" y="237.5" text-anchor="middle" font-size="13" font-weight="700" fill="#db2777">3</text>
+<text x="828" y="229.5" font-size="14" font-weight="700" fill="#1a1530">Operate and integrate</text>
+<text x="828" y="247.5" font-size="11.5" fill="#706d7f">Next.js console + docs site</text><rect x="770" y="271" width="446" height="53" rx="12" fill="#f5f2ff" stroke="#c9c6d6"/>
+<rect x="786" y="283.5" width="28" height="28" rx="7" fill="#f5f0fe" stroke="#c3a5f7"/><text x="800" y="302.5" text-anchor="middle" font-size="13" font-weight="700" fill="#db2777">4</text>
+<text x="828" y="294.5" font-size="14" font-weight="700" fill="#1a1530">Scoped auth</text>
+<text x="828" y="312.5" font-size="11.5" fill="#706d7f">Bearer memora_ HMAC + Google</text>
+</svg>

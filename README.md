@@ -1,90 +1,127 @@
-# Memora
+<p align="center"><img src="docs/readme/banner.svg" alt="memora: Durable retrievable memory for your app" width="100%"></p>
+<div align="center">
 
-The core service that persists memory for applications needing durable,
-retrievable context.
+![python](https://img.shields.io/badge/python-3.12%20%2B%20FastAPI-3776AB?logo=python&logoColor=white) ![fastapi](https://img.shields.io/badge/fastapi-19%20routers%20%2Fapi%2Fv1-009688?logo=fastapi&logoColor=white) ![nextdotjs](https://img.shields.io/badge/nextdotjs-console%20%2B%20docs-000000?logo=nextdotjs&logoColor=white) ![postgres](https://img.shields.io/badge/postgres-pgvector%20HNSW%202048-4169E1?logo=postgresql&logoColor=white) ![falkordb](https://img.shields.io/badge/falkordb-per--tenant%20graph-FF6B00?logo=falkordb&logoColor=white)
 
-This repository currently contains the **console and registration foundation**:
-a Next.js operations console and a FastAPI backend over Neon PostgreSQL that
-model who owns what, and let a file be registered and stored against the right
-owner, plus the first processing stages: the Extraction Agent and the
-knowledge graph (see below). Embeddings and vector search are the next phase.
+Memora is a durable, retrievable memory API that turns files into versioned extractions, chunks, pgvector embeddings and a FalkorDB knowledge graph.
 
-## The ownership chain
+</div>
 
-Everything in Memora hangs off one chain. Reading it top to bottom is the whole
-data model:
+> [!TIP]
+> **Ingest once, ask anywhere** — every answer reuses the same versioned chunks, vectors, and graph facts.
 
-```
-Tenant              the organization that owns the data      Acme Law Firm
-  └── Application   the consuming application                LegalCase
-        └── Actor   who or what operates on it               lawyer_123
-              └── Subject   the workspace / data boundary    case-ABC-456
-                    └── Source   registered knowledge        complaint.pdf
-```
+## Contents
+1. [❓ The problem](#-the-problem)
+2. [✅ Our solution](#-our-solution)
+3. [🧩 Features](#-features)
+4. [🧠 How it works](#-how-it-works)
+5. [🏗️ Architecture](#-architecture)
+6. [🗃️ Data model](#-data-model)
+7. [🛠️ Tech stack](#-tech-stack)
+8. [⚡ Quick start](#-quick-start)
+9. [⚙️ Configuration](#-configuration)
+10. [🔌 API](#-api)
+11. [🧪 Testing](#-testing)
+12. [📁 Repository](#-repository)
+13. [📄 License](#-license)
+---
+## ❓ The problem
+Apps that need durable, retrievable context — cases, projects, agents — lose it. Files live outside the app, extractions are re-run and forgotten, and answers drift from sources. That is the whole reason `backend/app/db/models/` exists: to persist memory, not just store bytes.
 
-Two distinctions matter and are easy to lose:
+| If you just … | What happens | Why it hurts |
+|---|---|---|
+| Store raw files or URLs in `backend/app/db/models/source.py` | No versioned reading, no reusable chunks | Every prompt re-reads from scratch |
+| Re-extract on every request | No `source_extractions` versions, no cost ledger | You pay twice and cannot reproduce answers |
+| Bolt on vectors without ownership | Embeddings without `Tenant->Application->Actor->Subject->Source` scope | One app can read another tenant's data |
+| Ask an LLM directly | No grounding in chunks + graph evidence | Replies sound right but are not tied to sources |
 
-- **An actor is not a subject.** The actor is who *caused* a workspace to
-  exist; the subject is the workspace itself. A lawyer opens a case; the case
-  holds the documents.
-- **`actor_id` on a subject means "created by", not "may access".** Several
-  people and agents will work inside one case. Per-actor authorization, when it
-  is needed, belongs in a separate `subject_actors` table — designed for, not
-  built yet.
+---
+## ✅ Our solution
+Memora is a memory API with ownership + pipeline: own knowledge, process it once, ask it with grounding.
+1. **Own it** — create `Tenant -> Application -> Actor -> Subject` in `backend/app/db/models/`, then register `Source` rows under the right subject. `tenant_id`/`application_id` are copied from the parent, never accepted from the client.
+2. **Ingest it** — `POST /subjects/{id}/sources/upload` with `extract=true`, or record a `url` source with no bytes. Every run creates a new version in `source_extractions` with models, tokens, and cost.
+3. **Reuse it** — the same version feeds chunking (`backend/app/chunking/`), pgvector embeddings (`backend/app/services/embedding_service.py`), and the per-tenant FalkorDB graph (`backend/app/graph/store.py`).
+4. **Ask it** — `POST /api/v1/query` in `backend/app/api/routes/retrieval.py` runs HNSW top50 → MMR top10 → rerank top5 → LLM, or browse everything in the Next.js console in `console/src/app/`.
+5. The benefit that matters most: **ingest once, then every query reuses the same versioned chunks, vectors, and graph facts.**
+---
+## 🧩 Features
+**App developers**
+- **Versioned extractions:** every `POST /sources/{id}/extractions` in `backend/app/api/routes/extractions.py` creates v1, v2, … with readings, content, models, and usage.
+- **Three-level chunking:** `backend/app/chunking/` parses readings to `DocumentUnit` → `SemanticBlock` → `RetrievalChunk` with `embedding_text`.
+- **Vector embeddings:** `backend/app/services/embedding_service.py` enqueues by `input_hash`, embeds via NVIDIA NIM, and stores `Vector(2048)` behind HNSW.
+- **Retrieval ask:** `POST /query` in `backend/app/services/retrieval_service.py` returns a grounded answer or chunks-only with `generate=false`.
+- **Bearer auth:** `Authorization: Bearer memora_...` in `backend/app/api/deps.py` is HMAC-hashed, scoped to its application and tenant.
+- **Usage ledger:** `backend/app/api/routes/usage.py` groups cost by application, model, and trigger.
 
-Memora also does not own your identity system. An actor stores your own
-identifier (`external_id`) and nothing else: no email, no password, no role.
+**Operators**
+- **Ops console:** `console/src/components/Shell.tsx` gives a Tenants → Applications → Actors → Subjects → Sources rail with list + detail routes.
+- **Extract / graph / embedding panels:** trigger extractions, `POST /sources/{id}/graph`, and drain/retry embeddings without curl.
+- **Dashboard + graph viz:** `backend/app/api/routes/dashboard.py` powers stats/metrics/`whoami`, with `SubjectTree` and graph views in `console/src/components/`.
+- **Google sign-in:** `backend/app/api/routes/auth.py` uses HttpOnly session cookies; no bearer tokens in the browser.
 
-## Repository layout
+**Everyone**
+- **Knowledge graph:** `backend/app/graph/` extracts entities/relationships per chunk, resolves with deterministic UUIDv5, and stores one graph per tenant in FalkorDB.
+- **Public docs site:** `web/src/app/docs/` renders pipeline, ownership chain, and `Endpoint`/`Fields` API reference with links into the console.
+---
+## 🧠 How it works
+<p align="center"><img src="docs/readme/flow.svg" alt="Ingest once, then every query reuses the same versioned chunks, vectors, and graph facts." width="100%"></p>
 
-```
-backend/                 FastAPI + SQLAlchemy + Alembic
-  app/
-    core/                config, token hashing, domain errors
-    db/models/           the six tables
-    schemas/             Pydantic request/response contracts
-    services/            all business logic and ownership enforcement
-    api/routes/          thin HTTP handlers that call services
-    storage/             StorageBackend interface + local-disk implementation
-  migrations/            Alembic revisions
-  tests/                 24 tests over a real PostgreSQL
+- **Source → Processor → Extraction → version:** `backend/app/services/extraction_service.py` runs `DocumentProcessor` + `ExtractionAgent`, never leaves a run stuck in `processing`, and persists a new `source_extractions` version.
+- **Chunk once, rechunk free:** `backend/app/services/chunking_service.py` converts stored `readings` to units, blocks, and active `retrieval_chunks`; old versions are deactivated, not deleted.
+- **Idempotent embeddings:** `backend/app/services/embedding_service.py` uses `(chunk, strategy, input_hash)` uniqueness plus `SELECT ... FOR UPDATE SKIP LOCKED` and a daemon drain to NIM, normalizing to `halfvec(2048)`.
+- **Per-tenant graph with provenance:** `backend/app/graph/ingestion.py` parallel-extracts per chunk, `backend/app/graph/resolution.py` dedups, and `backend/app/graph/store.py` MERGEs `Document/Chunk/Entity` nodes with source + chunk provenance.
+- **Grounded retrieval:** `backend/app/services/retrieval_service.py` does scoped HNSW top50 → MMR top10 (`lambda 0.7`) → rerank top5 → LLM answered ONLY from context chunks + graph evidence.
+---
+## 🏗️ Architecture
+<p align="center"><img src="docs/readme/architecture.svg" alt="Read left to right: apps and console call the FastAPI API, which runs the memory pipeline on Postgres pgvector and FalkorDB." width="100%"></p>
 
-console/                 Next.js 16 App Router + TypeScript + Tailwind 4
-  src/lib/               typed API client, fetch hooks, formatters
-  src/components/        console shell, table, forms, create modals
-  src/app/               one route per resource, list + detail
-```
+| Part | Job |
+|---|---|
+| Backend API (`backend/app/main.py`, `backend/app/api/routes/`) | 19 routers under `/api/v1`, thin handlers + `Scope` enforcement, `/health` probe and lifespan recovery |
+| Auth + ownership (`backend/app/api/deps.py`, `backend/app/services/scope.py`, `backend/app/services/credential_service.py`) | `memora_` HMAC lookup vs console session; cross-tenant reads return 404, not 403 |
+| Ingest + extraction (`backend/app/services/extraction_service.py`, `backend/app/agents/`, `backend/app/processing/`) | Upload/text ingest, triage, `nvidia/` layout/vision/extract models, version + cost ledger |
+| Chunking (`backend/app/chunking/`, `backend/app/services/chunking_service.py`) | `parse_readings` → `build_semantic_blocks` → `chunk_semantic_block` with `embedding_text` |
+| Embeddings (`backend/app/services/embedding_service.py`, `backend/app/embeddings/provider.py`) | Strategy catalog, idempotent queue, NIM provider, `halfvec(2048)` HNSW `M16, ef64` in Postgres |
+| Knowledge graph (`backend/app/graph/`, `backend/app/services/graph_service.py`) | Per-chunk LLM extract, UUIDv5 resolution, per-tenant FalkorDB writes, deterministic BFS retrieval |
+| Retrieval (`backend/app/services/retrieval_service.py`, `backend/app/retrieval/mmr.py`, `backend/app/retrieval/reranker.py`) | HNSW → MMR → rerank → grounded LLM, fallback to MMR order on rerank error |
+| Console (`console/src/app/`, `console/src/components/Shell.tsx`) | Next.js ops console on `:3000`, ownership rail, extraction/graph/embedding panels |
+| Web docs (`web/src/app/page.tsx`, `web/src/app/docs/`, `web/src/components/docs.tsx`) | Public landing + six-stage pipeline and reference on `:3001`, no login |
+| Storage (local disk / R2) | `STORAGE_DIR` locally, `R2_*` in production for source bytes |
+---
+## 🗃️ Data model
+Everything hangs off one chain in `backend/app/db/models/`. Read it top to bottom:
 
-Routes are deliberately thin: they resolve parameters and call a service.
-Ownership checks live in the service layer so they cannot be bypassed by a new
-endpoint that forgets them.
-
-## Running it
-
-You need Python 3.12+, Node 20.9+, and a PostgreSQL database (Neon, or a local
-container). The console is on Next 16, which builds with Turbopack and requires
-React 19.
-
-### 1. Database
-
-Create a Neon project and copy its connection string, changing the driver
-prefix to `postgresql+psycopg://`:
-
-```
-postgresql+psycopg://USER:PASSWORD@ep-xxx.region.aws.neon.tech/memora?sslmode=require
-```
-
-For a purely local database instead:
+| Entity | What it holds |
+|---|---|
+| `Tenant -> Application -> Actor -> Subject -> Source` | Tenant owns applications; application maps `external_id` actors (no email/role); subject is the workspace/folder with `parent_subject_id` and `actor_id = created-by`; source denormalizes `tenant_id`/`application_id` from its subject in `backend/app/db/models/source.py` |
+| `SourceExtraction` | Versioned runs `v1, v2, …` with `status/mode/instructions`, `provider/models/result/content/readings`, `tokens/cost`, triggered-by attribution in `backend/app/db/models/extraction.py` |
+| `DocumentUnit / SemanticBlock / RetrievalChunk` | Parsed units grouped per section, then retrieval-sized chunks with `chunk_index`, `embedding_text`, `token_count`, `is_active` and ordered cascade delete in `backend/app/db/models/chunking.py` |
+| `EmbeddingModel / EmbeddingStrategy / ChunkEmbedding` | Model catalog + immutable strategy (`Memora Dense v1` / `nvidia/nemotron-3-embed-1b` default); `ChunkEmbedding` is `Vector(2048)` with `pending → processing → completed/failed/stale` and `(chunk, strategy, input_hash)` uniqueness in `backend/app/db/models/embedding.py` |
+| `SourceGraphBuild` | Postgres record of graph builds: source/extraction version, chunking params, counts, `failed_chunks`, stats, tokens/cost; the graph itself lives in FalkorDB per tenant in `backend/app/db/models/graph.py` |
+| `ExtractionUsage` | Cost ledger behind `GET /extractions` in `backend/app/api/routes/usage.py`, grouped by application/model/trigger |
+---
+## 🛠️ Tech stack
+| Layer | Technology | Why |
+|---|---|---|
+| Language | Python 3.12 + TypeScript | Backend FastAPI/SQLAlchemy; console/web Next.js 16 + React 19 + Tailwind 4 in `console/package.json` |
+| Framework | FastAPI + Next.js App Router | 19 routers under `/api/v1` in `backend/app/main.py`; console ops + public docs site |
+| Database | Postgres + pgvector + Alembic | System of record; `halfvec(2048)` HNSW in `backend/migrations/versions/d4e5f6a7b8c9_embedding_tables.py`; migrations from `Base.metadata` in `backend/migrations/env.py` |
+| Graph + storage | FalkorDB + local disk / Cloudflare R2 | One graph per tenant via `graph_name` in `backend/app/graph/store.py`; `STORAGE_DIR` vs `R2_*` bytes |
+| Library | `openai` SDK + `rapidfuzz`, `sqlalchemy`, `psycopg` | NVIDIA NIM embeddings/LLM/rerank client in `backend/app/embeddings/provider.py`; deterministic resolution; `postgresql+psycopg://` driver in `backend/requirements.txt` |
+| Service | NVIDIA NIM + Google Identity | `nvidia/` extract/vision/parse/embed/rerank models; console Google-only sign-in in `backend/app/services/auth_services.py` |
+---
+## ⚡ Quick start
+You need Python 3.12+, Node 20.9+, and Postgres (Neon or local). API on `:8000`, console on `:3000`, docs on `:3001`.
 
 ```bash
+# 1. Database — local container, or Neon with postgresql+psycopg:// prefix
 docker run -d --name memora-pg \
   -e POSTGRES_USER=memora -e POSTGRES_PASSWORD=memora -e POSTGRES_DB=memora \
   -p 5432:5432 postgres:16-alpine
 ```
 
-### 2. Backend
-
 ```bash
+# 2. Backend :8000
 cd backend
 cp .env.example .env          # then set DATABASE_URL and API_SECRET
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
@@ -92,69 +129,22 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-The API is on http://localhost:8000, with interactive docs at `/docs`.
-
-Generate a real `API_SECRET` before doing anything you care about:
-
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-
-It is the key that API tokens are hashed with. Rotating it invalidates every
-issued credential.
-
-### 3. Console
-
-```bash
+# 3. Console :3000
 cd console
 cp .env.example .env.local    # NEXT_PUBLIC_API_BASE_URL defaults to :8000
 npm install
 npm run dev
 ```
 
-The console is on http://localhost:3000.
-
-**Use `localhost`, or add your host to `allowedDevOrigins`.** Next 16 refuses
-dev requests — including the HMR websocket — from origins it does not
-recognize, answering with a bare `Unauthorized`. Because the HMR client is part
-of the Turbopack dev runtime, that refusal stops hydration completely: the page
-renders, then every panel sits on "Loading…" forever with nothing in the
-terminal to explain it. `localhost` and `127.0.0.1` are different origins to a
-browser, so both are listed in `next.config.ts`. If you open the console from
-another machine or a container host, add that origin there too.
-
-### Tests
-
 ```bash
-cd backend
-TEST_DATABASE_URL=postgresql+psycopg://... .venv/bin/python -m pytest tests/ -q
+# 4. Docs site :3001
+cd web
+npm install
+npm run dev
 ```
 
-The suite runs against a real PostgreSQL, not SQLite — the schema relies on
-native UUIDs, `gen_random_uuid()` and `ON DELETE` behaviour that SQLite cannot
-represent, so testing on it would verify something other than what ships.
-**Point it at a throwaway database:** the fixtures truncate every table between
-tests.
-
-## API
-
-All endpoints are under `/api/v1`. Nested paths express ownership — an
-application is created inside a tenant, a subject inside an application, a
-source inside a subject.
-
-| Resource | Endpoints |
-|---|---|
-| Tenants | `POST/GET /tenants`, `GET/PATCH /tenants/{id}` |
-| Applications | `POST/GET /tenants/{id}/applications`, `GET /applications`, `GET/PATCH /applications/{id}` |
-| Credentials | `POST/GET /applications/{id}/credentials`, `GET /credentials`, `PATCH/DELETE /credentials/{id}` |
-| Actors | `POST/GET /applications/{id}/actors`, `GET /actors`, `GET/PATCH /actors/{id}` |
-| Subjects | `POST/GET /applications/{id}/subjects`, `GET /subjects`, `GET/PATCH /subjects/{id}` |
-| Sources | `POST/GET /subjects/{id}/sources`, `POST /subjects/{id}/sources/upload`, `GET /sources`, `GET/PATCH/DELETE /sources/{id}`, `GET /sources/{id}/content` |
-| Meta | `GET /stats`, `GET /whoami`, `GET /health` |
-
-### Registering a file
-
-Two ways, both landing in `pending`:
+Register a file — both land in `pending` with ownership copied from the subject:
 
 ```bash
 # Post the bytes. Memora stores them and returns a tracked source row.
@@ -170,119 +160,95 @@ curl -X POST http://localhost:8000/api/v1/subjects/$SUBJECT_ID/sources \
        "storage_uri":"https://law.example.gov/statutes/1204"}'
 ```
 
-Notice what the client does *not* send: `tenant_id` or `application_id`. Those
-are copied from the subject named in the path, so a caller cannot attach a
-source to a tenant it does not own.
+Interactive schema is at `http://localhost:8000/docs`.
+---
+## ⚙️ Configuration
+Copy `backend/.env.example` to `backend/.env` and `console/.env.example` to `console/.env.local`.
 
-## Authentication
+| Variable | Value / purpose |
+|---|---|
+| `DATABASE_URL` | Must use `postgresql+psycopg://` prefix for SQLAlchemy psycopg 3 in `backend/.env.example` |
+| `API_SECRET` | Keys HMAC token hashing in `backend/app/services/credential_service.py`; rotating it invalidates every credential |
+| `ENVIRONMENT` | `local` uses build.nvidia.com + disk; `production` uses Nebius + R2 |
+| `NVIDIA_API_KEY` / `NEBIUS_API_KEY` | Development vs demo/production model providers |
+| `STORAGE_DIR` / `R2_*` | Local-disk dir vs Cloudflare R2 production storage |
+| `FALKORDB_URL` | Empty disables graph with 503s; `falkor://` plain local, `falkors://` TLS Cloud in `backend/app/api/deps.py` |
+| `LLM_EXTRACT_MODEL`, `LLM_VISION_MODEL`, `LLM_LAYOUT_MODEL` | Must start with `nvidia/` |
+| `GOOGLE_CLIENT_ID` | Must match console `NEXT_PUBLIC_GOOGLE_CLIENT_ID`; every Google token is checked against it |
+| `NEXT_PUBLIC_API_BASE_URL` | Browser → backend URL in `console/.env.example`; must never hold a secret |
+| `API_PROXY_TARGET` | Forwards `/api/v1/*` in `console/next.config.ts` so the session cookie stays first-party |
+| `retrieval_hnsw_top_k`, `retrieval_mmr_top_k`, `retrieval_final_top_k` | Defaults `50 / 10 / 5` in `backend/app/core/config.py` |
+| `retrieval_mmr_lambda` | Defaults `0.7` relevance/diversity trade-off |
+| `TEST_DATABASE_URL` | Throwaway real Postgres for `backend/tests/` |
 
-There are two kinds of caller, and one dependency (`app/api/deps.py::get_scope`)
-resolves both. No endpoint validates a token itself.
+Keep `.env` and `.env.local` out of git — copy from `.env.example` and never commit secrets.
+---
+## 🔌 API
+All endpoints are under `/api/v1` in `backend/app/main.py`. Nested paths express ownership.
 
-**Applications** send `Authorization: Bearer memora_...`. The token is hashed,
-looked up, and checked for status and expiry; the credential then resolves to
-its application and tenant. That pair *is* the request's scope, so an
-application can only ever see its own data regardless of the ids it puts in a
-URL. `GET /whoami` shows the resolution.
-
-**The console** sends no bearer token and gets an unrestricted scope, optionally
-gated by an `X-Admin-Key` header when `ADMIN_API_KEY` is set. This is
-intentionally simple for the MVP: the console key reaches the browser, so it is
-a speed bump, not a security boundary. Anything beyond localhost needs real
-operator sign-in.
-
-### How tokens are stored
-
-The raw token exists in exactly two places: the response that creates it, and
-wherever you paste it. The database holds only an HMAC-SHA256 of it, keyed by
-`API_SECRET`.
-
-The keyed HMAC — rather than bcrypt or argon2 — is a deliberate choice.
-Authenticating a request has to answer "which credential is this?" from the
-token alone, which means an indexed lookup; a per-row random salt would force a
-scan of every credential in the table. HMAC keeps that a single indexed
-equality check while ensuring a stolen database dump is not enough to forge
-tokens, because `API_SECRET` never touches the database. Tokens are 256 bits of
-randomness, so the offline brute-force resistance a slow hash buys for human
-passwords is not needed here.
-
-`token_preview` stores a short, unusable fragment so the console can label a row
-without handling the secret. No response schema anywhere contains `token_hash`.
-
-## Ownership enforcement
-
-> A source must never be accessible merely because its `id` is known.
-
-Every service read and write takes a `Scope` (`app/services/scope.py`), loads
-the row, and asserts the row's owners match. Three properties fall out of that:
-
-- **Cross-tenant reads return 404, not 403.** A 403 would confirm the id exists
-  in someone else's tenant, which is itself a leak.
-- **Ownership columns are derived, never accepted.** A source's
-  `tenant_id`/`application_id` are copied from its subject.
-- **The whole chain has to agree.** `GET /subjects/{a}/sources/{b}` fails if
-  source `b` lives in a different subject, even when both belong to you.
-
-`backend/tests/test_ownership.py` covers each of these.
-
-## Extraction Agent
-
-Below `Source` sits the first processing stage: the **Extraction Agent**
-(`Document → Extracted Information`), running inside the backend on NVIDIA
-models via build.nvidia.com (development, free) or Nebius Token Factory (demo).
-
-```
-Source → Document Processor (local, per-page triage) → Extraction Agent → source_extractions (v1, v2, …)
-```
-
-It runs only when asked — `extract=true` on an upload, `POST
-/api/v1/sources/{id}/extractions`, or the **Extract** button in the console —
-and every run is a new version with its model calls and cost recorded. Design:
-[docs/extraction-agent.md](docs/extraction-agent.md). API reference: the
-`Extractions` page of the docs site.
-
-Setup: put `NVIDIA_API_KEY` (and, for production, `NEBIUS_API_KEY` and the
-`R2_*` values) in `backend/.env`, set `ENVIRONMENT` to `local` or
-`production`, run `alembic upgrade head`. See `backend/.env.example`.
-
-## Knowledge graph
-
-Below extraction sits the **knowledge graph** on FalkorDB: each extraction's
-merged text is chunked, an NVIDIA model reads each chunk for entities and
-relationships from a fixed ontology (`backend/ontology.json`), duplicates are
-resolved, and the facts land in one graph per tenant with provenance back to
-source and chunk. A subject's graph (and its folders') can be viewed or
-queried with deterministic 1–3 hop retrieval.
-
-```
-source_extractions.content → chunks → entities + relationships → FalkorDB → graph evidence
-```
-
-It runs only when asked — `build_graph=true` on an extract or upload, or `POST
-/api/v1/sources/{id}/graph`. Design: [docs/graph-rag.md](docs/graph-rag.md).
-API reference: the `Knowledge graph` page of the docs site.
-
-Setup: set `FALKORDB_URL` (FalkorDB Cloud: `falkors://user:pass@host:port`) in
-`backend/.env`, `pip install -r requirements.txt`, `alembic upgrade head`.
-Without `FALKORDB_URL` the graph endpoints answer 503 and nothing else changes.
-
-Embeddings and vector search are a later phase; none exist yet.
-
-## Repository layout
-
-| Directory   | Domain                  | What it is                                        |
-| ----------- | ----------------------- | ------------------------------------------------- |
-| `backend/`  | `api.memora.x.in`       | FastAPI service, PostgreSQL, Alembic migrations.  |
-| `console/`  | `console.memora.x.in`   | Operator console. Behind a session login.         |
-| `web/`      | `memora.x.in`           | Public landing page and API reference. No login.  |
-| `docs/`     | —                       | Internal decision records, not a published site.  |
-
-`web/` is deliberately public: someone integrating against Memora can read the
-reference without an account, and every "use Memora" call to action on it is a
-link into the console rather than an operation it performs itself.
+| Name | Purpose |
+|---|---|
+| `POST/GET /tenants`, `GET/PATCH /tenants/{id}` | Ownership root in `backend/app/api/routes/tenants.py` |
+| `POST/GET /tenants/{id}/applications`, `GET/PATCH /applications/{id}` | Consuming application in `backend/app/api/routes/applications.py` |
+| `POST/GET /applications/{id}/credentials`, `PATCH/DELETE /credentials/{id}` | Issue one-time `memora_` token, list, revoke in `backend/app/api/routes/credentials.py` |
+| `POST/GET /applications/{id}/actors`, `GET/PATCH /actors/{id}` | Your `external_id` identity map in `backend/app/api/routes/actors.py` |
+| `POST/GET /applications/{id}/subjects`, `GET/PATCH /subjects/{id}` | Workspace/folder boundary + move/delete in `backend/app/api/routes/subjects.py` |
+| `POST/GET /subjects/{id}/sources`, `POST /subjects/{id}/sources/upload` | Register URL/text or upload bytes with `extract=true` in `backend/app/api/routes/sources.py` |
+| `GET /sources`, `GET/PATCH/DELETE /sources/{id}`, `GET /sources/{id}/content`, `POST /sources/{id}/move` | Source CRUD, download, and re-parenting |
+| `POST /sources/{id}/extractions`, `GET /sources/{id}/extractions/latest`, `GET /sources/{id}/extractions/{version}` | Start next version (202 `processing`, 409 if running), poll versions in `backend/app/api/routes/extractions.py` |
+| `POST /sources/{id}/graph`, `GET /sources/{id}/graph/builds`, `GET/POST /subjects/{id}/graph` | Build from latest extraction, list builds, deterministic 1–3 hop query; 503 if unconfigured in `backend/app/api/routes/graph.py` |
+| `GET /embedding/strategies`, `PATCH /embedding/strategies/{id}`, `POST /embedding/*`, `GET /embedding/stats`, `POST /embedding/query` | Immutable strategies (only description/`is_active` patchable), enqueue/drain/retry/stats, embed-without-search in `backend/app/api/routes/embeddings.py` |
+| `POST /query` | Synchronous read-only HNSW → MMR → rerank → LLM in `backend/app/api/routes/retrieval.py`; `subject_id`/`source_id` narrow scope, `generate=false` returns chunks only |
+| `GET /sources/{id}/chunks` | Inspect active `retrieval_chunks` in `backend/app/api/routes/chunks.py` |
+| `GET /extractions`, `GET /stats`, `GET /stats/metrics`, `GET /whoami`, `GET /health` | Cost ledger, dashboard, credential resolution in `backend/app/api/routes/usage.py`, `dashboard.py`, and `backend/app/main.py` |
+| `POST /auth/google`, `GET /auth/me`, `POST /auth/logout` | Console Google-only login with HttpOnly cookie in `backend/app/api/routes/auth.py` |
 
 ```bash
-cd backend  && uvicorn app.main:app --reload   # :8000
-cd console  && npm run dev                     # :3000
-cd web      && npm run dev                     # :3001
+# Extract, then build the graph from that extraction
+curl -X POST http://localhost:8000/api/v1/sources/$SOURCE_ID/extractions \
+  -H "Authorization: Bearer memora_..."
+curl -X POST http://localhost:8000/api/v1/sources/$SOURCE_ID/graph \
+  -H "Authorization: Bearer memora_..."
+
+# Ask — scope decides the corpus, filters narrow it
+curl -X POST http://localhost:8000/api/v1/query \
+  -H "Authorization: Bearer memora_..." -H "Content-Type: application/json" \
+  --data-binary @- <<'JSON'
+{"query": "What does the complaint allege?", "subject_id": "00000000-0000-0000-0000-000000000000"}
+JSON
 ```
+
+See `http://localhost:8000/docs` for exact `Endpoint`/`Fields` schemas also rendered in `web/src/components/docs.tsx`.
+---
+## 🧪 Testing
+Runs on a real Postgres, not SQLite — the schema in `backend/migrations/` relies on native UUIDs, `gen_random_uuid()`, and `ON DELETE` behaviour SQLite cannot represent.
+
+```bash
+cd backend
+TEST_DATABASE_URL=postgresql+psycopg://... .venv/bin/python -m pytest tests/ -q
+```
+
+- **Fixtures truncate every table** between tests in `backend/tests/` — point `TEST_DATABASE_URL` at a throwaway database.
+- **Ownership is covered** in `backend/tests/test_ownership.py`: cross-tenant reads return 404 not 403, ownership columns are derived from the parent subject, and the whole chain must agree.
+- **Pipeline is covered** across `backend/tests/` (21 files): version claim/409, `chunk_extraction` in `backend/app/services/chunking_service.py`, idempotent enqueue, and graph build/query paths.
+---
+## 📁 Repository
+| Folder | What it is | Port |
+|---|---|---|
+| [backend/](backend/) | FastAPI + SQLAlchemy + Alembic API, `app/` services/routes, `migrations/` revisions, `tests/` suite | `:8000` |
+| [console/](console/) | Next.js 16 ops console in `console/src/app/`, `console/src/components/`, `console/src/lib/` typed client | `:3000` |
+| [web/](web/) | Public landing + API reference in `web/src/app/`, `web/src/components/docs.tsx`, no login | `:3001` |
+| [docs/](docs/) | Decision records `extraction-agent.md`, `graph-rag.md` plus `readme/` banner/architecture/flow images | — |
+
+```bash
+cd backend && uvicorn app.main:app --reload   # :8000
+cd console && npm run dev                     # :3000
+cd web && npm run dev                         # :3001
+```
+---
+## 📄 License
+Licensed under the Apache License 2.0 — see [LICENSE](LICENSE) for details.
+
+---
+
+<sub>Generated by GitFill from `Gopinathv19/memora` at commit `b6357f6`.</sub>
